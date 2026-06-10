@@ -39,8 +39,11 @@ jobs:
           sed -i '/ios: true/d' pubspec.yaml
           # Hapus youtube_player_flutter
           sed -i '/youtube_player_flutter:/d' pubspec.yaml
+          # FIX INDENTASI uses-material-design
+          sed -i 's/^uses-material-design:/  uses-material-design:/g' pubspec.yaml
+          sed -i 's/^  uses-material-design:/  uses-material-design:/g' pubspec.yaml
           echo "✅ pubspec.yaml sudah dibersihkan"
-          cat pubspec.yaml | head -50
+          cat pubspec.yaml | grep -A2 "flutter:"
       
       - name: Create dummy assets
         run: |
