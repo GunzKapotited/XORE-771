@@ -1,4 +1,4 @@
-name: Run Node.js
+name: Test Run Node.js
 
 on:
   schedule:
