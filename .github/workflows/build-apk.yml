@@ -1,4 +1,4 @@
-name: Build APK from ZIP
+name: Build APK like VPS
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Pake Ubuntu versi lama kayak VPS kebanyakan
     
     steps:
       - uses: actions/checkout@v4
@@ -16,39 +16,35 @@ jobs:
         run: |
           ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
           if [ -z "$ZIP_FILE" ]; then
-            echo "❌ Tidak ada file ZIP!"
+            echo "❌ No ZIP file found"
             exit 1
           fi
-          unzip -o -q "$ZIP_FILE"
+          unzip -o "$ZIP_FILE"
           rm -f "$ZIP_FILE"
+          ls -la
       
-      - name: Setup Java (Zulu)
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'zulu'
-          java-version: '11'
+      - name: Setup Java (OpenJDK 11 kayak VPS)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-11-jdk
+          java -version
       
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.16.9'
+      - name: Setup Flutter (stable terbaru)
+        run: |
+          cd $HOME
+          wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.16.9-stable.tar.xz
+          tar -xf flutter_linux_3.16.9-stable.tar.xz
+          echo "$HOME/flutter/bin" >> $GITHUB_PATH
+          flutter precache
       
       - name: Build APK
         run: |
+          flutter doctor
           flutter clean
           flutter pub get
           flutter build apk --release
       
       - uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk          flutter pub get
-      
-      - name: Build APK
-        run: flutter build apk --release
-      
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
