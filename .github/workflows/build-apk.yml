@@ -20,8 +20,10 @@ jobs:
             echo "❌ Tidak ada file ZIP!"
             exit 1
           fi
-          unzip -o "$ZIP_FILE"
+          echo "📦 Extracting $ZIP_FILE..."
+          unzip -o -q "$ZIP_FILE"
           rm -f "$ZIP_FILE"
+          echo "✅ Extract selesai!"
       
       - name: Setup Java
         uses: actions/setup-java@v3
@@ -32,15 +34,23 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.16.0'
+          flutter-version: '3.22.0'
       
-      - name: Install dependencies
+      - name: Create missing assets
         run: |
+          mkdir -p assets/images assets/videos assets/icon fonts 2>/dev/null || true
+          find assets -name "*.png" -exec touch {} \; 2>/dev/null || true
+          find assets -name "*.jpg" -exec touch {} \; 2>/dev/null || true
+          find assets -name "*.mp4" -exec touch {} \; 2>/dev/null || true
+          find fonts -name "*.ttf" -exec touch {} \; 2>/dev/null || true
+      
+      - name: Get dependencies
+        run: |
+          flutter clean
           flutter pub get
       
       - name: Build APK
-        run: |
-          flutter build apk --release
+        run: flutter build apk --release
       
       - name: Upload APK
         uses: actions/upload-artifact@v4
