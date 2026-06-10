@@ -1,4 +1,4 @@
-name: Run Node.js Bot with Cloudflare Tunnel
+name: Run Node.js
 
 on:
   schedule:
