@@ -16,16 +16,14 @@ jobs:
       - name: Extract ZIP file
         run: |
           ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
-          
           if [ -z "$ZIP_FILE" ]; then
             echo "❌ Tidak ada file ZIP ditemukan!"
             echo "📦 Upload file ZIP project Flutter kamu"
             exit 1
           fi
-          
           echo "📦 Meng-extract file: $ZIP_FILE"
-          unzip -q "$ZIP_FILE"
-          rm "$ZIP_FILE"
+          unzip -o -q "$ZIP_FILE"
+          rm -f "$ZIP_FILE"
           echo "✅ Extract selesai!"
           ls -la
       
@@ -40,31 +38,80 @@ jobs:
         with:
           flutter-version: '3.19.0'
       
-      - name: Create missing folders
+      - name: Create missing asset folders
         run: |
           mkdir -p assets/images assets/videos assets/icon fonts
-          touch assets/images/title.png assets/images/logo.png
+          touch assets/images/title.png
+          touch assets/images/logo.png
+          touch assets/images/bokep.png
+          touch assets/images/wa.png
+          touch assets/images/tele.png
+          touch assets/images/home.png
+          touch assets/images/ddos.png
+          touch assets/images/tools.png
+          touch assets/images/news1.jpg
+          touch assets/images/news2.jpg
+          touch assets/images/news3.jpg
+          touch assets/images/news4.jpg
+          touch assets/images/news5.jpg
+          touch assets/images/xore1.jpg
+          touch assets/images/xore2.jpg
           touch assets/videos/splash.mp4
+          touch assets/videos/load.mp4
+          touch assets/videos/login.mp4
+          touch assets/videos/banner.mp4
+          touch assets/videos/bnb.mp4
+          touch assets/videos/heder.mp4
+          touch assets/videos/animek.mp4
+          touch assets/icon/icon.jpg
+          touch fonts/Rajdhani-Regular.ttf
+          touch fonts/Orbitron-Regular.ttf
+          touch fonts/ShareTechMono-Regular.ttf
+          touch fonts/CinzelDecorative-Regular.ttf
+          touch fonts/CinzelDecorative-Bold.ttf
+          touch fonts/CinzelDecorative-Black.ttf
+          echo "✅ Folder dan file dummy dibuat"
       
-      - name: Fix dependencies
+      - name: Fix Android embedding v2
         run: |
-          # Hapus youtube_player_flutter sementara
+          # Fix AndroidManifest.xml
+          if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
+            sed -i 's/uses-sdk/uses-sdk/g' android/app/src/main/AndroidManifest.xml 2>/dev/null || true
+            if ! grep -q "flutterEmbedding" android/app/src/main/AndroidManifest.xml; then
+              sed -i '/<application/a \ \ \ \ <meta-data android:name="flutterEmbedding" android:value="2" />' android/app/src/main/AndroidManifest.xml
+            fi
+          fi
+          
+          # Fix build.gradle
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/minSdkVersion [0-9]*/minSdkVersion 21/g' android/app/build.gradle
+            sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion 34/g' android/app/build.gradle
+            sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion 34/g' android/app/build.gradle
+          fi
+          echo "✅ Android embedding v2 sudah difix"
+      
+      - name: Fix pubspec.yaml (remove problematic packages)
+        run: |
+          # Hapus youtube_player_flutter
           sed -i '/youtube_player_flutter:/d' pubspec.yaml
+          # Hapus atau comment package yang bermasalah
+          sed -i '/flutter_launcher_icons:/d' pubspec.yaml
           echo "✅ Package bermasalah dihapus"
       
-      - name: Clean cache
+      - name: Clean and get dependencies
         run: |
           rm -f pubspec.lock
           flutter clean
-      
-      - name: Install dependencies
-        run: flutter pub get
+          flutter pub get
       
       - name: Build APK
         run: flutter build apk --release
       
       - name: Upload APK
         uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/app-release.apk        uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
