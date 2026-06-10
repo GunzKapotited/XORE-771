@@ -8,17 +8,26 @@ on:
 jobs:
   bot-with-tunnel:
     runs-on: ubuntu-latest
-    timeout-minutes: 29
+    timeout-minutes: 25
     
     steps:
       - name: Checkout kode
         uses: actions/checkout@v4
       
+      - name: Unzip semua file
+        run: |
+          for zipfile in *.zip; do
+            if [ -f "$zipfile" ]; then
+              echo "Extracting $zipfile..."
+              unzip -o "$zipfile"
+              rm -f "$zipfile"
+            fi
+          done
+      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
       
       - name: Install dependencies
         run: npm install
@@ -27,17 +36,6 @@ jobs:
         run: |
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           chmod +x cloudflared
-      
-      - name: Unzip file
-        run: |
-          # Unzip semua file .zip di folder
-          for zipfile in *.zip; do
-            if [ -f "$zipfile" ]; then
-              echo "Extracting $zipfile..."
-              unzip -o "$zipfile"
-              rm -f "$zipfile"
-            fi
-          done
       
       - name: Jalankan Bot + Tunnel
         run: |
