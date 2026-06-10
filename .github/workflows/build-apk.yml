@@ -15,10 +15,7 @@ jobs:
       - name: Extract ZIP
         run: |
           ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found"
-            exit 1
-          fi
+          [ -z "$ZIP_FILE" ] && echo "No ZIP" && exit 1
           unzip -o "$ZIP_FILE"
           rm -f "$ZIP_FILE"
       
@@ -33,29 +30,70 @@ jobs:
         with:
           flutter-version: '3.22.0'
       
+      - name: Auto generate pubspec.yaml yang benar dengan assets
+        run: |
+          # Backup pubspec lama
+          cp pubspec.yaml pubspec.yaml.bak
+          
+          # Ambil semua daftar assets dari pubspec lama
+          ASSETS_LIST=$(sed -n '/assets:/,/fonts:/p' pubspec.yaml.bak | grep -E "^- " | sed 's/^- /      - /')
+          FONTS_LIST=$(sed -n '/fonts:/,$p' pubspec.yaml.bak)
+          
+          # Buat pubspec baru yang bersih
+          cat > pubspec.yaml << 'NEWEOF'
+name: xorex771
+description: Gunz
+publish_to: none
+version: 4.1.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.1.0
+  url_launcher: ^6.2.6
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.2.2
+  device_info_plus: ^10.1.0
+  carousel_slider: ^4.2.1
+  web_socket_channel: ^2.4.0
+  network_info_plus: ^5.0.1
+  permission_handler: ^11.3.0
+  video_player: ^2.8.6
+  webview_flutter: ^4.7.0
+  shimmer: ^3.0.0
+  socket_io_client: ^2.0.3
+  audioplayers: ^6.0.0
+  intl: ^0.19.0
+  font_awesome_flutter: ^10.7.0
+  file_picker: ^8.0.0
+  path_provider: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+NEWEOF
+          
+          # Tambahkan assets jika ada
+          if [ ! -z "$ASSETS_LIST" ]; then
+            echo "" >> pubspec.yaml
+            echo "  assets:" >> pubspec.yaml
+            echo "$ASSETS_LIST" >> pubspec.yaml
+          fi
+          
+          echo "✅ pubspec.yaml selesai dengan assets"
+      
       - name: Fix Gradle
         run: |
           if [ -f "android/app/build.gradle.kts" ]; then
             sed -i 's/versionCode = flutter.versionCode/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
             sed -i 's/versionName = flutter.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
           fi
-      
-      - name: Fix pubspec.yaml
-        run: |
-          # Hapus bagian flutter_launcher_icons
-          sed -i '/flutter_launcher_icons:/,/^[a-z]/d' pubspec.yaml
-          # Hapus youtube_player_flutter
-          sed -i '/youtube_player_flutter:/d' pubspec.yaml
-          # Hapus baris android/ios true
-          sed -i '/android: true/d' pubspec.yaml
-          sed -i '/ios: true/d' pubspec.yaml
-          # Fix indentasi
-          sed -i 's/^uses-material-design:/  uses-material-design:/' pubspec.yaml
-      
-      - name: Create dummy assets
-        run: |
-          mkdir -p assets/icon
-          touch assets/icon/icon.jpg
       
       - name: Build APK
         run: |
