@@ -15,10 +15,7 @@ jobs:
       - name: Extract ZIP
         run: |
           ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "❌ Tidak ada file ZIP!"
-            exit 1
-          fi
+          [ -z "$ZIP_FILE" ] && echo "No ZIP" && exit 1
           unzip -o "$ZIP_FILE"
           rm -f "$ZIP_FILE"
       
@@ -33,21 +30,21 @@ jobs:
         with:
           flutter-version: '3.22.0'
       
-      - name: Fix Gradle Kotlin
+      - name: Fix semua error di pubspec.yaml
         run: |
-          if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i 's/versionCode = flutter.versionCode/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/versionName = flutter.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
-          fi
-      
-      - name: Fix pubspec.yaml
-        run: |
+          # Hapus seluruh bagian flutter_launcher_icons
+          sed -i '/^flutter_launcher_icons:/,/^[a-z]/d' pubspec.yaml
+          # Hapus baris yang mengandung android: true
+          sed -i '/android: true/d' pubspec.yaml
+          sed -i '/ios: true/d' pubspec.yaml
+          # Hapus youtube_player_flutter
           sed -i '/youtube_player_flutter:/d' pubspec.yaml
-          sed -i '/flutter_launcher_icons:/d' pubspec.yaml
+          echo "✅ pubspec.yaml sudah dibersihkan"
+          cat pubspec.yaml | head -50
       
       - name: Create dummy assets
         run: |
-          mkdir -p assets/images assets/videos assets/icon
+          mkdir -p assets/icon
           touch assets/icon/icon.jpg
       
       - name: Build APK
@@ -56,8 +53,7 @@ jobs:
           flutter pub get
           flutter build apk --release
       
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: build/app/outputs/flutter-apk/app-release.apk
