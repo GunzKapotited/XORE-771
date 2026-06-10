@@ -10,68 +10,39 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       
-      - name: Extract ZIP file
+      - name: Extract ZIP
         run: |
-          # Cari file ZIP
           ZIP_FILE=$(ls *.zip 2>/dev/null | head -n 1)
           if [ -z "$ZIP_FILE" ]; then
             echo "❌ Tidak ada file ZIP!"
             exit 1
           fi
-          echo "📦 Extracting $ZIP_FILE..."
           unzip -o -q "$ZIP_FILE"
           rm -f "$ZIP_FILE"
-          echo "✅ Extract selesai!"
-          ls -la
       
-      - name: Setup Java
+      - name: Setup Java (Zulu)
         uses: actions/setup-java@v3
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: 'zulu'
+          java-version: '11'
       
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
+          flutter-version: '3.16.9'
       
-      - name: Fix Gradle Kotlin syntax
-        run: |
-          if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i 's/versionCode = flutter.versionCode/versionCode = flutter.versionCode()/g' android/app/build.gradle.kts
-            sed -i 's/versionName = flutter.versionName/versionName = flutter.versionName()/g' android/app/build.gradle.kts
-            echo "✅ Gradle Kotlin syntax fixed"
-          fi
-          
-          if [ -f "android/build.gradle" ] || [ -f "android/build.gradle.kts" ]; then
-            echo "✅ Android config OK"
-          fi
-      
-      - name: Fix pubspec.yaml (remove problematic packages)
-        run: |
-          # Hapus youtube_player_flutter
-          sed -i '/youtube_player_flutter:/d' pubspec.yaml
-          # Hapus flutter_launcher_icons sementara
-          sed -i '/flutter_launcher_icons:/d' pubspec.yaml
-          echo "✅ pubspec.yaml fixed"
-      
-      - name: Create missing assets
-        run: |
-          mkdir -p assets/images assets/videos assets/icon fonts
-          # Buat file dummy untuk semua asset yang diperlukan
-          touch assets/images/title.png 2>/dev/null || true
-          touch assets/images/logo.png 2>/dev/null || true
-          touch assets/videos/splash.mp4 2>/dev/null || true
-          echo "✅ Assets created"
-      
-      - name: Clean and get dependencies
+      - name: Build APK
         run: |
           flutter clean
-          rm -f pubspec.lock
           flutter pub get
+          flutter build apk --release
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/app-release.apk          flutter pub get
       
       - name: Build APK
         run: flutter build apk --release
