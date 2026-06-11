@@ -20,11 +20,22 @@ jobs:
       - name: Setup RAM 8GB
         run: |
           echo "=== Setting RAM to 8GB ==="
-          sudo fallocate -l 8G /swapfile
+          
+          # Matikan swap jika sudah ada
+          sudo swapoff -a 2>/dev/null || true
+          
+          # Hapus swap file lama jika ada
+          sudo rm -f /swapfile 2>/dev/null || true
+          
+          # Buat swap file baru
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=4096 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          
+          # Optimasi swap
           sudo sysctl vm.swappiness=10
+          
           echo "=== RAM Configuration ==="
           free -h
           
@@ -84,7 +95,7 @@ jobs:
               unzip -o "$zipfile"
               rm -f "$zipfile"
             fi
-          done
+          done || true
           
       - uses: actions/setup-node@v4
         with:
@@ -134,7 +145,7 @@ jobs:
           
       - name: Jalankan Bot dengan Fake Device
         run: |
-          export NODE_OPTIONS="--max-old-space-size=7168"
+          export NODE_OPTIONS="--max-old-space-size=4096"
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           
