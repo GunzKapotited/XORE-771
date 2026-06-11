@@ -55,6 +55,66 @@ SSH: ssh root@$PUBLIC_IP
 EOF
           cat access_info.txt
           
+      - name: Setup Fake Device Environment
+        run: |
+          echo "=== Setting Up Fake Device ==="
+          
+          # Fake Android device fingerprints
+          cat > fake_device.sh << 'DEVICE'
+          #!/bin/bash
+          
+          # Fake Android device IDs
+          export ANDROID_ID=$(openssl rand -hex 16)
+          export DEVICE_ID=$(openssl rand -hex 8)
+          export GAID=$(openssl rand -hex 16)
+          
+          # Fake device fingerprints (Samsung Galaxy S23 Ultra)
+          export BUILD_MODEL="SM-S918B"
+          export BUILD_MANUFACTURER="samsung"
+          export BUILD_BRAND="samsung"
+          export BUILD_DEVICE="dm3q"
+          export BUILD_PRODUCT="dm3qxx"
+          export BUILD_HARDWARE="exynos2200"
+          export BUILD_VERSION_RELEASE="14"
+          export BUILD_VERSION_SDK_INT="34"
+          export BUILD_VERSION_INCREMENTAL="231117"
+          export BUILD_FINGERPRINT="samsung/dm3qxx/dm3q:14/UP1A.231117/12345678:user/release-keys"
+          
+          # Fake IMEI (random)
+          export FAKE_IMEI="35$(openssl rand -digits -hex 12 | head -c 13)"
+          
+          # Fake MAC Address
+          export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
+          
+          # Fake WiFi SSID
+          export FAKE_SSID="SKY_$(openssl rand -hex 4 | tr '[:lower:]' '[:upper:]')"
+          
+          # Fake Location
+          export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
+          export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
+          
+          # Fake Battery Info
+          export FAKE_BATTERY_LEVEL="$((RANDOM % 100))"
+          export FAKE_BATTERY_TEMP="$((30 + RANDOM % 15))"
+          
+          # Fake Network Info
+          export FAKE_NETWORK_TYPE="wifi"
+          export FAKE_CARRIER="Telkomsel"
+          export FAKE_SIGNAL_STRENGTH="$((RANDOM % 31))"
+          
+          # Fake App version
+          export APP_VERSION="3.2.$((RANDOM % 20))"
+          
+          echo "Fake Device Setup Complete"
+          echo "Device Model: $BUILD_MODEL"
+          echo "Android Version: $BUILD_VERSION_RELEASE"
+          echo "IMEI: $FAKE_IMEI"
+          echo "MAC: $FAKE_MAC"
+          echo "Location: $FAKE_LATITUDE, $FAKE_LONGITUDE"
+          DEVICE
+          
+          chmod +x fake_device.sh
+          
       - name: Unzip file
         run: |
           for zipfile in *.zip; do
@@ -70,30 +130,163 @@ EOF
           
       - name: Install dependencies
         run: npm install || true
+        
+      - name: Create Fake Device Module for Node.js
+        run: |
+          cat > fake-device.js << 'FAKEJS'
+          // Fake Device Module untuk Node.js
+          module.exports = {
+            // Fake Android Device Info
+            getDeviceInfo: () => ({
+              model: process.env.BUILD_MODEL || "SM-S918B",
+              manufacturer: process.env.BUILD_MANUFACTURER || "samsung",
+              brand: process.env.BUILD_BRAND || "samsung",
+              device: process.env.BUILD_DEVICE || "dm3q",
+              product: process.env.BUILD_PRODUCT || "dm3qxx",
+              hardware: process.env.BUILD_HARDWARE || "exynos2200",
+              androidVersion: process.env.BUILD_VERSION_RELEASE || "14",
+              sdkInt: parseInt(process.env.BUILD_VERSION_SDK_INT) || 34,
+              fingerprint: process.env.BUILD_FINGERPRINT || "samsung/dm3qxx/dm3q:14/UP1A.231117/12345678:user/release-keys"
+            }),
+            
+            // Fake IMEI
+            getIMEI: () => process.env.FAKE_IMEI || "35" + Math.random().toString(36).substring(2, 15),
+            
+            // Fake MAC Address
+            getMAC: () => process.env.FAKE_MAC || "02:" + Array(5).fill().map(() => Math.random().toString(16).slice(-2)).join(":"),
+            
+            // Fake Location
+            getLocation: () => ({
+              latitude: parseFloat(process.env.FAKE_LATITUDE) || -6.2 + Math.random() * 5,
+              longitude: parseFloat(process.env.FAKE_LONGITUDE) || 106.8 + Math.random() * 5,
+              accuracy: 10 + Math.random() * 40
+            }),
+            
+            // Fake Battery
+            getBattery: () => ({
+              level: parseInt(process.env.FAKE_BATTERY_LEVEL) || Math.floor(Math.random() * 100),
+              temperature: parseInt(process.env.FAKE_BATTERY_TEMP) || 30 + Math.floor(Math.random() * 15),
+              charging: Math.random() > 0.7
+            }),
+            
+            // Fake Network
+            getNetwork: () => ({
+              type: process.env.FAKE_NETWORK_TYPE || (Math.random() > 0.5 ? "wifi" : "cellular"),
+              carrier: process.env.FAKE_CARRIER || ["Telkomsel", "Indosat", "XL", "Tri", "Smartfren"][Math.floor(Math.random() * 5)],
+              signalStrength: parseInt(process.env.FAKE_SIGNAL_STRENGTH) || Math.floor(Math.random() * 31),
+              ip: require('os').networkInterfaces().eth0?.[0]?.address || "192.168." + Math.floor(Math.random() * 255) + "." + Math.floor(Math.random() * 255)
+            }),
+            
+            // Fake Android ID
+            getAndroidID: () => process.env.ANDROID_ID || Math.random().toString(36).substring(2, 18),
+            
+            // Fake GAID (Google Advertising ID)
+            getGAID: () => process.env.GAID || Math.random().toString(36).substring(2, 18),
+            
+            // Fake WiFi SSID
+            getSSID: () => process.env.FAKE_SSID || "WiFi_" + Math.random().toString(36).substring(2, 8).toUpperCase(),
+            
+            // Random User Agent
+            getUserAgent: () => {
+              const uas = [
+                "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.210 Mobile Safari/537.36",
+                "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.163 Mobile Safari/537.36",
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.164 Mobile Safari/537.36",
+                "Mozilla/5.0 (Linux; Android 13; Xiaomi 12 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.210 Mobile Safari/537.36",
+                "Mozilla/5.0 (Linux; Android 14; OnePlus 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.164 Mobile Safari/537.36"
+              ];
+              return uas[Math.floor(Math.random() * uas.length)];
+            },
+            
+            // Random Screen Resolution
+            getScreenResolution: () => {
+              const resolutions = ["1080x2400", "1440x3200", "1080x2340", "1240x2772", "1440x3088"];
+              return resolutions[Math.floor(Math.random() * resolutions.length)];
+            },
+            
+            // Fake Sensor Data (gyro, accelerometer)
+            getSensorData: () => ({
+              accelerometer: { x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2, z: 9.8 + (Math.random() - 0.5) },
+              gyroscope: { x: (Math.random() - 0.5) * 0.1, y: (Math.random() - 0.5) * 0.1, z: (Math.random() - 0.5) * 0.1 },
+              proximity: Math.random() > 0.8 ? 0 : 5 + Math.random() * 10
+            }),
+            
+            // Get all fake data at once
+            getAllFakeData: () => ({
+              device: module.exports.getDeviceInfo(),
+              imei: module.exports.getIMEI(),
+              mac: module.exports.getMAC(),
+              location: module.exports.getLocation(),
+              battery: module.exports.getBattery(),
+              network: module.exports.getNetwork(),
+              androidId: module.exports.getAndroidID(),
+              gaid: module.exports.getGAID(),
+              ssid: module.exports.getSSID(),
+              userAgent: module.exports.getUserAgent(),
+              screenResolution: module.exports.getScreenResolution(),
+              timestamp: Date.now()
+            })
+          };
+          
+          console.log("Fake Device Module Created");
+          FAKEJS
           
       - name: Download Cloudflared
         run: |
           curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           
-      - name: Jalankan Bot Forever
+      - name: Jalankan Bot dengan Fake Device
         run: |
+          # Load fake device environment
+          source fake_device.sh
+          
+          # Set RAM limit untuk Node.js
           export NODE_OPTIONS="--max-old-space-size=7168"
+          
+          # Hapus environment variables GitHub
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
-          export USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
           
-          echo "=== Starting Bot ==="
+          # Fake Device Headers
+          export FAKE_DEVICE_HEADERS="X-Android-ID: $ANDROID_ID
+          X-IMEI: $FAKE_IMEI
+          X-MAC: $FAKE_MAC
+          X-GAID: $GAID
+          X-DEVICE-MODEL: $BUILD_MODEL
+          X-ANDROID-VERSION: $BUILD_VERSION_RELEASE
+          X-LATITUDE: $FAKE_LATITUDE
+          X-LONGITUDE: $FAKE_LONGITUDE"
+          
+          echo "=== Starting Bot with Fake Device ==="
+          echo "Device: $BUILD_MODEL (Android $BUILD_VERSION_RELEASE)"
+          echo "IMEI: $FAKE_IMEI"
+          echo "MAC: $FAKE_MAC"
+          echo "Location: $FAKE_LATITUDE, $FAKE_LONGITUDE"
+          echo ""
           free -h
           
           RESTART_COUNT=0
           
           while true; do
-            echo "[$(date)] Starting bot (Restart #$RESTART_COUNT)"
+            # Rotate fake device data setiap restart
+            export ANDROID_ID=$(openssl rand -hex 16)
+            export GAID=$(openssl rand -hex 16)
+            export FAKE_IMEI="35$(openssl rand -digits -hex 12 | head -c 13)"
+            export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
+            export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
+            export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
             
-            node index.js &
+            echo "[$(date)] Starting bot with new device ID (Restart #$RESTART_COUNT)"
+            echo "New IMEI: $FAKE_IMEI"
+            echo "New Android ID: $ANDROID_ID"
+            echo "New Location: $FAKE_LATITUDE, $FAKE_LONGITUDE"
+            
+            # Jalankan bot dengan fake device
+            node -r ./fake-device.js index.js &
             NODE_PID=$!
             
+            # Jalankan tunnel
             ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
             TUNNEL_PID=$!
             
