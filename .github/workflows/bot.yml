@@ -12,7 +12,7 @@ concurrency:
 jobs:
   bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 999999  # Diperbesar agar tidak timeout
+    timeout-minutes: 999999
     
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +21,7 @@ jobs:
         run: |
           # Setup RAM 8GB
           echo "=== Setting RAM to 8GB ==="
-          sudo mount -o remount,exec,size=8G /dev/shm
+          sudo mount -o remount,exec,size=8G /dev/shm 2>/dev/null || true
           
           # Buat swap 8GB
           sudo fallocate -l 8G /swapfile
@@ -36,7 +36,7 @@ jobs:
           # Tampilkan RAM
           echo "=== RAM Configuration ==="
           free -h
-          df -h /dev/shm
+          df -h /dev/shm 2>/dev/null || true
           
       - name: Tampilkan IP, Username Root, dan Password Root
         run: |
@@ -48,11 +48,11 @@ jobs:
           echo ""
           echo "[IP Address Information]"
           echo "------------------------"
-          PUBLIC_IP=$(curl -s https://api.ipify.org)
+          PUBLIC_IP=$(curl -s --max-time 10 https://api.ipify.org)
           echo "Public IP: $PUBLIC_IP"
           
           # Alternatif IP dari service lain
-          IPV4=$(curl -s https://ipv4.icanhazip.com)
+          IPV4=$(curl -s --max-time 10 https://ipv4.icanhazip.com)
           echo "IPv4: $IPV4"
           
           # Tampilkan IP lokal
@@ -62,7 +62,7 @@ jobs:
           # Tampilkan semua IP
           echo ""
           echo "All Network Interfaces:"
-          ip addr show | grep -E "inet " | awk '{print $2}'
+          ip addr show | grep -E "inet " | awk '{print $2}' || true
           
           # Tampilkan username root
           echo ""
@@ -84,9 +84,9 @@ jobs:
           echo "root:$ROOT_PASSWORD" | sudo chpasswd
           
           # Enable root login via password
-          sudo sed -i 's/^#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+          sudo sed -i 's/^PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+          sudo sed -i 's/^PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
           
           # Restart SSH service
           sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart 2>/dev/null || echo "SSH service restart not needed"
@@ -141,31 +141,37 @@ EOF
       - name: Unzip file
         run: |
           for zipfile in *.zip; do
-            [ -f "$zipfile" ] && unzip -o "$zipfile" && rm -f "$zipfile"
+            if [ -f "$zipfile" ]; then
+              unzip -o "$zipfile"
+              rm -f "$zipfile"
+            fi
           done
-      
+          
       - uses: actions/setup-node@v4
         with:
-          node-version: 'latest'
+          node-version: '20'
           check-latest: true
       
       - name: Install dependencies
         run: |
-          npm install --no-audit --no-fund
+          npm install --no-audit --no-fund || true
           
       - name: Download Cloudflared
         run: |
-          curl -L -s https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          curl -L -s --max-time 30 https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           chmod +x cloudflared
-      
+          
       - name: Jalankan Bot Forever (Tanpa Membuat Action Baru)
         run: |
           # Tampilkan akses info lagi sebelum bot jalan
           echo "=== SERVER ACCESS READY ==="
-          cat access_info.txt
+          if [ -f access_info.txt ]; then
+            cat access_info.txt
+          fi
           echo ""
           echo "You can SSH to this server using:"
-          echo "ssh root@$(curl -s https://api.ipify.org)"
+          CURRENT_IP=$(curl -s --max-time 5 https://api.ipify.org)
+          echo "ssh root@$CURRENT_IP"
           echo ""
           echo "=== BOT WILL RUN FOREVER IN THIS WORKFLOW ==="
           echo "No new GitHub Actions will be created"
@@ -179,6 +185,7 @@ EOF
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           unset GITHUB_HEAD_REF GITHUB_BASE_REF GITHUB_SERVER_URL
           unset GITHUB_API_URL GITHUB_GRAPHQL_URL GITHUB_REF GITHUB_SHA GITHUB_WORKSPACE
+          unset GITHUB_PATH GITHUB_ENV GITHUB_STATE GITHUB_OUTPUT
           
           export USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           
@@ -194,7 +201,7 @@ EOF
               echo "[$(date)] Memory: $(free -h | grep Mem | awk '{print $3"/"$2}')"
               echo "[$(date)] Uptime: $(uptime -p)"
               echo "-----------------------------------"
-              sleep 3000  # Kirim signal setiap 50 menit
+              sleep 3000
           done
           KEEPALIVE
           
@@ -211,19 +218,19 @@ EOF
           
           # Function cek koneksi
           check_internet() {
-              curl -s --max-time 5 https://1.1.1.1 > /dev/null
+              curl -s --max-time 5 https://1.1.1.1 > /dev/null 2>&1
               return $?
           }
+          
+          # Jalankan keepalive di background
+          ./keepalive.sh &
+          KEEPALIVE_PID=$!
           
           # Variabel monitoring
           RESTART_COUNT=0
           RAM_RESTART_COUNT=0
           FAIL_COUNT=0
           TOTAL_RUNTIME=0
-          
-          # Jalankan keepalive di background
-          ./keepalive.sh &
-          KEEPALIVE_PID=$!
           
           while true; do
               # Cek koneksi internet
@@ -241,11 +248,11 @@ EOF
               free -h
               
               # Jalankan node dengan nice priority
-              nice -n 10 node --expose-gc --max-old-space-size=7168 index.js &
+              nice -n 10 node --expose-gc --max-old-space-size=7168 index.js 2>&1 &
               NODE_PID=$!
               
               # Jalankan tunnel dengan nice priority
-              nice -n 10 ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+              nice -n 10 ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 2>&1 &
               TUNNEL_PID=$!
               
               echo "[$(date)] Processes started - Node: $NODE_PID, Tunnel: $TUNNEL_PID"
@@ -254,7 +261,7 @@ EOF
               # Monitoring loop
               RUN_TIME=0
               while true; do
-                  sleep 60  # Cek setiap 1 menit
+                  sleep 60
                   RUN_TIME=$((RUN_TIME + 60))
                   TOTAL_RUNTIME=$((TOTAL_RUNTIME + 60))
                   
@@ -269,7 +276,7 @@ EOF
                       echo "[$(date)] ❌ Tunnel died, restarting..."
                       kill $TUNNEL_PID 2>/dev/null
                       sleep 5
-                      nice -n 10 ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+                      nice -n 10 ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 2>&1 &
                       TUNNEL_PID=$!
                       echo "[$(date)] ✅ Tunnel restarted with PID: $TUNNEL_PID"
                   fi
@@ -278,25 +285,27 @@ EOF
                   if [ $((RUN_TIME % 300)) -eq 0 ]; then
                       RAM_USED=$(free -m | awk '/^Mem:/{print $3}')
                       RAM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
-                      RAM_PERCENT=$((RAM_USED * 100 / RAM_TOTAL))
+                      if [ -n "$RAM_TOTAL" ] && [ $RAM_TOTAL -gt 0 ]; then
+                        RAM_PERCENT=$((RAM_USED * 100 / RAM_TOTAL))
+                      else
+                        RAM_PERCENT=0
+                      fi
                       
                       echo "[$(date)] 📊 RAM Usage: ${RAM_USED}MB / ${RAM_TOTAL}MB (${RAM_PERCENT}%)"
                       
-                      # Jika RAM melebihi 7GB, restart
-                      if [ $RAM_USED -gt 7168 ]; then
+                      if [ -n "$RAM_USED" ] && [ "$RAM_USED" -gt 7168 ] 2>/dev/null; then
                           echo "[$(date)] ⚠️ WARNING: RAM over limit! (${RAM_USED}MB > 7168MB)"
                           RAM_RESTART_COUNT=$((RAM_RESTART_COUNT + 1))
                           break
                       fi
                       
-                      # Jika RAM melebihi 6GB, force garbage collection
-                      if [ $RAM_USED -gt 6144 ]; then
+                      if [ -n "$RAM_USED" ] && [ "$RAM_USED" -gt 6144 ] 2>/dev/null; then
                           echo "[$(date)] 🔄 RAM high (${RAM_USED}MB), forcing garbage collection..."
                           kill -USR2 $NODE_PID 2>/dev/null
                       fi
                   fi
                   
-                  # Periodic restart setiap 2 jam (biar fresh)
+                  # Periodic restart setiap 2 jam
                   if [ $RUN_TIME -ge 7200 ]; then
                       echo "[$(date)] 🔄 Periodic restart after 2 hours"
                       break
@@ -309,7 +318,7 @@ EOF
                       echo "[$(date)] - Total restarts: $RESTART_COUNT"
                       echo "[$(date)] - RAM restarts: $RAM_RESTART_COUNT"
                       echo "[$(date)] - Failures: $FAIL_COUNT"
-                      echo "[$(date)] - Total workflow runtime: $((TOTAL_RUNTIME / 3600)) hours"
+                      echo "[$(date)] - Total runtime: $((TOTAL_RUNTIME / 3600)) hours"
                   fi
               done
               
@@ -324,21 +333,19 @@ EOF
               
               RESTART_COUNT=$((RESTART_COUNT + 1))
               
-              # Jika terlalu banyak gagal, delay lebih lama
+              # Delay dengan backoff
               if [ $FAIL_COUNT -gt 5 ]; then
                   echo "[$(date)] ⚠️ Too many failures ($FAIL_COUNT), backing off 120 seconds..."
                   sleep 120
                   FAIL_COUNT=0
               fi
               
-              # Jika terlalu banyak restart karena RAM, delay lebih lama
               if [ $RAM_RESTART_COUNT -gt 3 ]; then
                   echo "[$(date)] ⚠️ Too many RAM restarts ($RAM_RESTART_COUNT), backing off 60 seconds..."
                   sleep 60
                   RAM_RESTART_COUNT=0
               fi
               
-              # Delay sebelum restart (acak 10-30 detik)
               SLEEP_TIME=$((10 + RANDOM % 20))
               echo "[$(date)] 🔄 Restarting bot in ${SLEEP_TIME} seconds..."
               echo "[$(date)] Total restarts so far: $RESTART_COUNT"
