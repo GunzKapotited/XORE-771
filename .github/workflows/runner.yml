@@ -1,4 +1,4 @@
-name: Bot 24/7 UNLIMITED LIMITS
+name: Bot 24/7 UNLIMITED LIMITS - MULTI BOT
 
 on:
   schedule:
@@ -17,148 +17,92 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup RAM 16GB
+      - name: Setup Large Storage & RAM 16GB
         run: |
-          echo "=== Setting RAM to 16GB ==="
-          
-          # Matikan swap jika sudah ada
           sudo swapoff -a 2>/dev/null || true
-          
-          # Hapus swap file lama jika ada
-          sudo rm -f /swapfile 2>/dev/null || true
-          
-          # Buat swap file 16GB (16GB RAM virtual)
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=32384 status=progress
+          sudo rm -f /swapfile /swapfile2 2>/dev/null || true
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=16384 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          
-          # Optimasi swap
-          sudo sysctl vm.swappiness=10
-          sudo sysctl vm.vfs_cache_pressure=50
-          
-          echo "=== RAM Configuration ==="
+          sudo dd if=/dev/zero of=/swapfile2 bs=1M count=8192 status=progress
+          sudo chmod 600 /swapfile2
+          sudo mkswap /swapfile2
+          sudo swapon /swapfile2
+          sudo sysctl vm.swappiness=5
+          sudo sysctl vm.vfs_cache_pressure=30
+          sudo sysctl vm.dirty_ratio=15
+          sudo sysctl vm.dirty_background_ratio=5
+          sudo docker system prune -af 2>/dev/null || true
+          sudo rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
+          sudo mkdir -p /mnt/extrastorage
+          sudo mount -t tmpfs -o size=8G tmpfs /mnt/extrastorage
+          echo "=== Storage Configuration ==="
+          df -h
           free -h
           
-      - name: Setup SSH (BISA DIPAKAI)
+      - name: Setup SSH Server with Persistent Access
         run: |
-          echo "=== Setting Up SSH Server ==="
-          
-          # Install SSH server
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openssh-server
-          
-          # Konfigurasi SSH
+          sudo apt-get install -y -qq openssh-server net-tools
           sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#Port.*/Port 22/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#Port 22/Port 22/' /etc/ssh/sshd_config
           sudo sed -i 's/^#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
-          
-          # Allow semua koneksi
-          echo "AllowUsers root" | sudo tee -a /etc/ssh/sshd_config
-          echo "PermitEmptyPasswords no" | sudo tee -a /etc/ssh/sshd_config
-          echo "UsePAM yes" | sudo tee -a /etc/ssh/sshd_config
-          
-          # Restart SSH
+          echo "UseDNS no" | sudo tee -a /etc/ssh/sshd_config
+          echo "GSSAPIAuthentication no" | sudo tee -a /etc/ssh/sshd_config
+          echo "MaxSessions 100" | sudo tee -a /etc/ssh/sshd_config
+          echo "MaxStartups 100:30:200" | sudo tee -a /etc/ssh/sshd_config
           sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart 2>/dev/null
-          sudo systemctl enable ssh 2>/dev/null || sudo service ssh enable 2>/dev/null
           
-          echo "=== SSH Server Ready ==="
-          sudo systemctl status ssh --no-pager || true
-          
-      - name: Tampilkan Info SSH
+      - name: Display SSH Access Info
         run: |
           PUBLIC_IP=$(curl -s https://api.ipify.org)
-          LOCAL_IP=$(hostname -I | awk '{print $1}')
           ROOT_PASSWORD=$(openssl rand -base64 32 | head -c 20)
           echo "root:$ROOT_PASSWORD" | sudo chpasswd
-          
           echo ""
-          echo "╔════════════════════════════════════════════════════════╗"
-          echo "║          RAM 16GB + SSH AKTIF                    ║"
-          echo "╚════════════════════════════════════════════════════════╝"
+          echo "=========================================="
+          echo "  MULTI BOT MODE - ALL ZIP WILL RUN"
+          echo "  SSH: ACTIVE"
+          echo "=========================================="
           echo ""
-          echo "RAM: 16GB (Swapfile)"
-          free -h
-          echo ""
-          echo "Public IP: $PUBLIC_IP"
+          echo "SSH Access:"
+          echo "IP: $PUBLIC_IP"
           echo "Port: 22"
-          echo "Username: root"
+          echo "User: root"
           echo "Password: $ROOT_PASSWORD"
           echo ""
-          echo "┌─────────────────────────────────────────────────────────┐"
-          echo "│  CARA PAKAI SSH:                                       │"
-          echo "├─────────────────────────────────────────────────────────┤"
-          echo "│                                                        │"
-          echo "│  ssh root@$PUBLIC_IP                                   │"
-          echo "│                                                        │"
-          echo "│  Lalu masukkan password:                               │"
-          echo "│  $ROOT_PASSWORD                                        │"
-          echo "│                                                        │"
-          echo "└─────────────────────────────────────────────────────────┘"
+          echo "ssh root@$PUBLIC_IP"
           echo ""
-          echo "SSH SUDAH AKTIF - Bisa dicoba dari terminal manapun!"
-          echo ""
+          echo "$PUBLIC_IP" > ~/ssh_ip.txt
+          echo "$ROOT_PASSWORD" > ~/ssh_pass.txt
           
-          # Simpan ke file
-          cat > ~/ssh_info.txt << EOF
-          SSH INFO
-          IP: $PUBLIC_IP
-          Port: 22
-          User: root
-          Password: $ROOT_PASSWORD
-          Command: ssh root@$PUBLIC_IP
-          RAM: 16GB Swap
-          EOF
-          
-          cat ~/ssh_info.txt
-          
-      - name: Setup Fake Device Environment
+      - name: Unzip ALL Files to Separate Folders
         run: |
-          echo "=== Setting Up Fake Device ==="
-          
-          cat > fake_device.sh << 'DEVICE'
-          #!/bin/bash
-          export ANDROID_ID=$(openssl rand -hex 16)
-          export DEVICE_ID=$(openssl rand -hex 8)
-          export GAID=$(openssl rand -hex 16)
-          export BUILD_MODEL="SM-S918B"
-          export BUILD_MANUFACTURER="samsung"
-          export BUILD_BRAND="samsung"
-          export BUILD_DEVICE="dm3q"
-          export BUILD_PRODUCT="dm3qxx"
-          export BUILD_HARDWARE="exynos2200"
-          export BUILD_VERSION_RELEASE="14"
-          export BUILD_VERSION_SDK_INT="34"
-          export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
-          export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
-          export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
-          export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
-          echo "Fake Device Setup Complete"
-          echo "Device Model: $BUILD_MODEL"
-          echo "IMEI: $FAKE_IMEI"
-          DEVICE
-          
-          chmod +x fake_device.sh
-          source fake_device.sh
-          
-      - name: Unzip file
-        run: |
+          # Unzip setiap file ke folder sendiri
           for zipfile in *.zip; do
             if [ -f "$zipfile" ]; then
-              unzip -o "$zipfile"
+              folder_name="${zipfile%.zip}"
+              echo "Extracting $zipfile to $folder_name/"
+              mkdir -p "$folder_name"
+              unzip -o "$zipfile" -d "$folder_name"
               rm -f "$zipfile"
             fi
-          done || true
+          done 2>/dev/null || true
+          
+          echo ""
+          echo "=== All bots extracted ==="
+          ls -la */
           
       - uses: actions/setup-node@v4
         with:
-          node-version: '23'
+          node-version: '20'
           
-      - name: Install dependencies
-        run: npm install || true
-        
-      - name: Create Fake Device Module
+      - name: Install Dependencies
+        run: |
+          npm install -g pm2 2>/dev/null || true
+          
+      - name: Create Fake Device Module (Global)
         run: |
           cat > fake-device.js << 'FAKEJS'
           module.exports = {
@@ -197,46 +141,109 @@ jobs:
           curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           
-      - name: Jalankan Bot dengan Fake Device
+      - name: Run ALL Bots Simultaneously
         run: |
-          export NODE_OPTIONS="--max-old-space-size=8192"
+          export NODE_OPTIONS="--max-old-space-size=12288"
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           
-          echo "=== Starting Bot with Fake Device ==="
-          echo "Device: $BUILD_MODEL (Android $BUILD_VERSION_RELEASE)"
-          echo "IMEI: $FAKE_IMEI"
-          echo "MAC: $FAKE_MAC"
-          echo ""
-          echo " TOTAL RAM: 32GB"
-          free -h
+          echo "=== Starting ALL Bots ==="
           echo ""
           
-          RESTART_COUNT=0
+          # Setup fake device environment
+          source fake_device.sh 2>/dev/null || true
           
+          # Simpan semua PID
+          PIDS=""
+          BOT_COUNT=0
+          
+          # Loop semua folder yang ada index.js
+          for bot_dir in */; do
+            if [ -f "${bot_dir}index.js" ]; then
+              BOT_COUNT=$((BOT_COUNT + 1))
+              
+              # Generate fake data UNIQUE untuk setiap bot
+              export ANDROID_ID=$(openssl rand -hex 16)
+              export GAID=$(openssl rand -hex 16)
+              export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
+              export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
+              export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
+              export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
+              
+              echo "[BOT $BOT_COUNT] Starting: ${bot_dir}"
+              echo "  IMEI: $FAKE_IMEI"
+              echo "  MAC: $FAKE_MAC"
+              
+              # Jalankan bot di folder masing-masing
+              cd "$bot_dir"
+              node -r ../fake-device.js index.js &
+              PID=$!
+              PIDS="$PIDS $PID"
+              cd ..
+            fi
+          done
+          
+          echo ""
+          echo "=== Total Bots Running: $BOT_COUNT ==="
+          echo "PIDs: $PIDS"
+          echo ""
+          
+          # Jalankan Cloudflare Tunnel
+          ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+          TUNNEL_PID=$!
+          
+          echo "Tunnel PID: $TUNNEL_PID"
+          echo ""
+          echo "SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)"
+          echo ""
+          echo "=== Monitoring All Bots ==="
+          
+          # Monitor semua bot
           while true; do
-            export ANDROID_ID=$(openssl rand -hex 16)
-            export GAID=$(openssl rand -hex 16)
-            export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
-            export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
-            export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
-            export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
+            sleep 60
             
-            echo "[$(date)] Starting bot with new device (Restart #$RESTART_COUNT)"
-            echo "IMEI: $FAKE_IMEI"
-            echo "Location: $FAKE_LATITUDE, $FAKE_LONGITUDE"
+            # Cek apakah semua bot masih hidup
+            ALL_ALIVE=true
+            for PID in $PIDS; do
+              if ! kill -0 $PID 2>/dev/null; then
+                echo "[WARNING] Bot PID $PID mati!"
+                ALL_ALIVE=false
+              fi
+            done
             
-            node -r ./fake-device.js index.js &
-            NODE_PID=$!
+            # Cek tunnel
+            if ! kill -0 $TUNNEL_PID 2>/dev/null; then
+              echo "Tunnel mati, restarting..."
+              ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+              TUNNEL_PID=$!
+            fi
             
-            ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
-            TUNNEL_PID=$!
+            # Kalo ada yang mati, restart semua
+            if [ "$ALL_ALIVE" = false ]; then
+              echo "Restarting all bots..."
+              for PID in $PIDS; do
+                kill $PID 2>/dev/null
+              done
+              
+              sleep 5
+              
+              # Start ulang semua bot
+              NEW_PIDS=""
+              for bot_dir in */; do
+                if [ -f "${bot_dir}index.js" ]; then
+                  export ANDROID_ID=$(openssl rand -hex 16)
+                  export GAID=$(openssl rand -hex 16)
+                  export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
+                  
+                  cd "$bot_dir"
+                  node -r ../fake-device.js index.js &
+                  NEW_PIDS="$NEW_PIDS $!"
+                  cd ..
+                fi
+              done
+              PIDS="$NEW_PIDS"
+              echo "All bots restarted. New PIDs: $PIDS"
+            fi
             
-            echo "Bot PID: $NODE_PID, Tunnel PID: $TUNNEL_PID"
-            
-            sleep 7200
-            
-            kill $NODE_PID $TUNNEL_PID 2>/dev/null
-            RESTART_COUNT=$((RESTART_COUNT + 1))
-            sleep 10
+            echo "[$(date)] Alive: Bots=$(echo $PIDS | wc -w) | Tunnel=$TUNNEL_PID"
           done
