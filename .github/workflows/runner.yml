@@ -1,4 +1,4 @@
-name: VPS RUN
+name: Bot 24/7 UNLIMITED LIMITS
 
 on:
   schedule:
@@ -17,167 +17,130 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup System
+      - name: Setup RAM 16GB
         run: |
-          echo "=== Setting RAM to 16GB with 2TB Swap ==="
+          echo "=== Setting RAM to 16GB ==="
           
           # Matikan swap jika sudah ada
           sudo swapoff -a 2>/dev/null || true
           
           # Hapus swap file lama jika ada
           sudo rm -f /swapfile 2>/dev/null || true
-          sudo rm -f /swapfile2 2>/dev/null || true
           
-          # Buat swap file utama 32GB
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=32768 status=progress
+          # Buat swap file 16GB (16GB RAM virtual)
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=16384 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
           
-          # Buat swap file kedua 2TB (virtual storage)
-          sudo dd if=/dev/zero of=/swapfile2 bs=1M count=2097152 status=progress
-          sudo chmod 600 /swapfile2
-          sudo mkswap /swapfile2
-          sudo swapon /swapfile2
-          
-          # Optimasi swap untuk performa maksimal
-          sudo sysctl vm.swappiness=5
+          # Optimasi swap
+          sudo sysctl vm.swappiness=10
           sudo sysctl vm.vfs_cache_pressure=50
-          sudo sysctl vm.dirty_ratio=20
-          sudo sysctl vm.dirty_background_ratio=10
           
-          # Mount tmpfs untuk cache
-          sudo mount -t tmpfs -o size=8G tmpfs /tmp
-          
-          echo "=== RAM + Storage Configuration ==="
+          echo "=== RAM Configuration ==="
           free -h
-          df -h
-          swapon --show
           
-          # Buat file dummy 2TB untuk memastikan storage teralokasi
-          sudo dd if=/dev/zero of=/storage_2tb.img bs=1M count=2048000 status=progress || true
-          sudo chmod 600 /storage_2tb.img
-          
-      - name: Optimasi Kernel 
+      - name: Setup SSH (BISA DIPAKAI)
         run: |
-          echo "=== Kernel Optimization for Maximum Performance ==="
+          echo "=== Setting Up SSH Server ==="
           
-          # Network optimization
-          sudo sysctl -w net.core.rmem_max=134217728
-          sudo sysctl -w net.core.wmem_max=134217728
-          sudo sysctl -w net.ipv4.tcp_rmem='4096 87380 134217728'
-          sudo sysctl -w net.ipv4.tcp_wmem='4096 65536 134217728'
-          sudo sysctl -w net.core.netdev_max_backlog=50000
-          sudo sysctl -w net.ipv4.tcp_congestion_control=bbr
+          # Install SSH server
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openssh-server
           
-          # File system optimization
-          sudo sysctl -w fs.file-max=2097152
-          sudo sysctl -w fs.inotify.max_user_watches=524288
-          sudo sysctl -w fs.inotify.max_user_instances=8192
-          
-          # Memory optimization
-          sudo sysctl -w kernel.numa_balancing=0
-          
-          # CPU optimization
-          sudo sysctl -w kernel.sched_autogroup_enabled=0
-          
-          # Increase limits
-          ulimit -n 1048576
-          ulimit -u unlimited
-          
-      - name: Setup SSH
-        run: |
-          echo "=========================================="
-          echo "========== SSH SERVER INFO =============="
-          echo "=========================================="
-          
-          # Install dan konfigurasi SSH
-          sudo apt-get update
-          sudo apt-get install -y openssh-server screen tmux htop nethogs iotop
-          
-          PUBLIC_IP=$(curl -s https://api.ipify.org)
-          LOCAL_IP=$(hostname -I | awk '{print $1}')
-          
-          # Generate root password super strong
-          ROOT_PASSWORD="Bot24/7SuperSecure@$(openssl rand -base64 16 | head -c 16)"
-          echo "root:$ROOT_PASSWORD" | sudo chpasswd
-          
-          # Konfigurasi SSH untuk multiple connections
+          # Konfigurasi SSH
           sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#MaxSessions.*/MaxSessions 100/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#MaxStartups.*/MaxStartups 100:30:200/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#ClientAliveInterval.*/ClientAliveInterval 60/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#ClientAliveCountMax.*/ClientAliveCountMax 99999/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#TCPKeepAlive.*/TCPKeepAlive yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#Port.*/Port 22/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
           
-          echo "ClientAliveInterval 30" | sudo tee -a /etc/ssh/sshd_config
-          echo "ClientAliveCountMax 99999" | sudo tee -a /etc/ssh/sshd_config
-          echo "MaxSessions 200" | sudo tee -a /etc/ssh/sshd_config
-          echo "MaxStartups 200" | sudo tee -a /etc/ssh/sshd_config
+          # Allow semua koneksi
+          echo "AllowUsers root" | sudo tee -a /etc/ssh/sshd_config
+          echo "PermitEmptyPasswords no" | sudo tee -a /etc/ssh/sshd_config
+          echo "UsePAM yes" | sudo tee -a /etc/ssh/sshd_config
           
           # Restart SSH
           sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart 2>/dev/null
+          sudo systemctl enable ssh 2>/dev/null || sudo service ssh enable 2>/dev/null
           
-          # Buat session screen/tmux untuk multiple terminal
-          screen -dmS bot_session bash
-          tmux new-session -d -s bot_tmux
+          echo "=== SSH Server Ready ==="
+          sudo systemctl status ssh --no-pager || true
+          
+      - name: Tampilkan Info SSH
+        run: |
+          PUBLIC_IP=$(curl -s https://api.ipify.org)
+          LOCAL_IP=$(hostname -I | awk '{print $1}')
+          ROOT_PASSWORD=$(openssl rand -base64 32 | head -c 20)
+          echo "root:$ROOT_PASSWORD" | sudo chpasswd
           
           echo ""
-          echo "╔════════════════════════════════════════╗"
-          echo "║     SSH ACCESS INFORMATION            ║"
-          echo "╚════════════════════════════════════════╝"
+          echo "╔════════════════════════════════════════════════════════╗"
+          echo "║         🔐 RAM 16GB + SSH AKTIF 🔐                     ║"
+          echo "╚════════════════════════════════════════════════════════╝"
           echo ""
-          echo "📡 SERVER: $PUBLIC_IP"
-          echo "🔌 PORT: 22"
-          echo "👤 USER: root"
-          echo "🔑 PASSWORD: $ROOT_PASSWORD"
+          echo "📊 RAM: 16GB (Swapfile)"
+          free -h
           echo ""
-          echo "📝 CONNECTION COMMAND:"
-          echo "ssh root@$PUBLIC_IP"
+          echo "📡 Public IP: $PUBLIC_IP"
+          echo "🔌 Port: 22"
+          echo "👤 Username: root"
+          echo "🔑 Password: $ROOT_PASSWORD"
           echo ""
-          echo "💡 MULTIPLE TERMINAL ACCESS:"
-          echo "- Gunakan screen -ls untuk melihat session"
-          echo "- screen -r bot_session untuk masuk session"
-          echo "- tmux attach -t bot_tmux untuk tmux"
+          echo "┌─────────────────────────────────────────────────────────┐"
+          echo "│  CARA PAKAI SSH:                                       │"
+          echo "├─────────────────────────────────────────────────────────┤"
+          echo "│                                                        │"
+          echo "│  ssh root@$PUBLIC_IP                                   │"
+          echo "│                                                        │"
+          echo "│  Lalu masukkan password:                               │"
+          echo "│  $ROOT_PASSWORD                                        │"
+          echo "│                                                        │"
+          echo "└─────────────────────────────────────────────────────────┘"
           echo ""
-          echo "=========================================="
+          echo "✅ SSH SUDAH AKTIF - Bisa dicoba dari terminal manapun!"
+          echo ""
           
-          # Simpan info ke file
+          # Simpan ke file
           cat > ~/ssh_info.txt << EOF
-          SSH INFO - $(date)
+          SSH INFO
           IP: $PUBLIC_IP
           Port: 22
           User: root
           Password: $ROOT_PASSWORD
           Command: ssh root@$PUBLIC_IP
+          RAM: 16GB Swap
           EOF
+          
+          cat ~/ssh_info.txt
           
       - name: Setup Fake Device Environment
         run: |
-          echo "=== Setting Up Advanced Fake Device ==="
+          echo "=== Setting Up Fake Device ==="
           
           cat > fake_device.sh << 'DEVICE'
           #!/bin/bash
-          export ANDROID_ID=$(openssl rand -hex 32)
-          export DEVICE_ID=$(openssl rand -hex 16)
-          export GAID=$(openssl rand -hex 32)
-          export BUILD_MODEL="SM-S938B"
+          export ANDROID_ID=$(openssl rand -hex 16)
+          export DEVICE_ID=$(openssl rand -hex 8)
+          export GAID=$(openssl rand -hex 16)
+          export BUILD_MODEL="SM-S918B"
           export BUILD_MANUFACTURER="samsung"
           export BUILD_BRAND="samsung"
           export BUILD_DEVICE="dm3q"
           export BUILD_PRODUCT="dm3qxx"
-          export BUILD_HARDWARE="exynos2400"
-          export BUILD_VERSION_RELEASE="15"
-          export BUILD_VERSION_SDK_INT="35"
-          export FAKE_IMEI="35$(openssl rand -hex 16 | head -c 15)"
-          export FAKE_MAC="02:$(openssl rand -hex 8 | sed 's/\(..\)/\1:/g' | cut -d: -f1-6)"
-          export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 9999999))"
-          export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 9999999))"
+          export BUILD_HARDWARE="exynos2200"
+          export BUILD_VERSION_RELEASE="14"
+          export BUILD_VERSION_SDK_INT="34"
+          export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
+          export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
+          export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
+          export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
           echo "Fake Device Setup Complete"
+          echo "Device Model: $BUILD_MODEL"
+          echo "IMEI: $FAKE_IMEI"
           DEVICE
           
           chmod +x fake_device.sh
+          source fake_device.sh
           
       - name: Unzip file
         run: |
@@ -192,116 +155,88 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Install dependencies super
+      - name: Install dependencies
+        run: npm install || true
+        
+      - name: Create Fake Device Module
         run: |
-          npm config set registry https://registry.npmmirror.com
-          npm install -g pm2
-          npm install --production --prefer-offline --no-audit --progress=false || true
-          npm install cluster express compression --save || true
-          
-      - name: Create Enhanced Bot Runner dengan Multi-Threading
-        run: |
-          cat > enhanced-bot.js << 'BOTJS'
-          const cluster = require('cluster');
-          const os = require('os');
-          const express = require('express');
-          const compression = require('compression');
-          
-          const app = express();
-          app.use(compression());
-          
-          app.get('/health', (req, res) => {
-            res.json({ status: 'running', uptime: process.uptime(), memory: process.memoryUsage() });
-          });
-          
-          app.get('/stats', (req, res) => {
-            res.json({
-              cpu: os.cpus(),
-              memory: os.totalmem(),
-              freemem: os.freemem(),
-              loadavg: os.loadavg()
-            });
-          });
-          
-          app.listen(8080, () => console.log('Health check running on port 8080'));
-          
-          if (cluster.isMaster) {
-            const numCPUs = os.cpus().length;
-            console.log(`Master ${process.pid} setting up ${numCPUs} workers`);
-            
-            for (let i = 0; i < numCPUs; i++) {
-              cluster.fork();
-            }
-            
-            cluster.on('exit', (worker) => {
-              console.log(`Worker ${worker.process.pid} died, restarting...`);
-              cluster.fork();
-            });
-          } else {
-            require('./index.js');
-          }
-          BOTJS
-          
           cat > fake-device.js << 'FAKEJS'
           module.exports = {
             getDeviceInfo: () => ({
-              model: process.env.BUILD_MODEL || "SM-S938B",
+              model: process.env.BUILD_MODEL || "SM-S918B",
               manufacturer: process.env.BUILD_MANUFACTURER || "samsung",
-              androidVersion: process.env.BUILD_VERSION_RELEASE || "15"
+              androidVersion: process.env.BUILD_VERSION_RELEASE || "14"
             }),
-            getIMEI: () => process.env.FAKE_IMEI || "35" + Math.random().toString(36).substring(2, 17),
-            getMAC: () => process.env.FAKE_MAC || "02:" + Array(6).fill().map(() => Math.random().toString(16).slice(-2)).join(":"),
+            getIMEI: () => process.env.FAKE_IMEI || "35" + Math.random().toString(36).substring(2, 15),
+            getMAC: () => process.env.FAKE_MAC || "02:" + Array(5).fill().map(() => Math.random().toString(16).slice(-2)).join(":"),
             getLocation: () => ({
-              latitude: parseFloat(process.env.FAKE_LATITUDE) || -6.2 + Math.random() * 10,
-              longitude: parseFloat(process.env.FAKE_LONGITUDE) || 106.8 + Math.random() * 10
+              latitude: parseFloat(process.env.FAKE_LATITUDE) || -6.2 + Math.random() * 5,
+              longitude: parseFloat(process.env.FAKE_LONGITUDE) || 106.8 + Math.random() * 5
+            }),
+            getUserAgent: () => {
+              const uas = [
+                "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 Chrome/120.0.6099.210 Mobile Safari/537.36",
+                "Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 Chrome/119.0.6045.163 Mobile Safari/537.36",
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 Chrome/121.0.6167.164 Mobile Safari/537.36"
+              ];
+              return uas[Math.floor(Math.random() * uas.length)];
+            },
+            getAllFakeData: () => ({
+              device: module.exports.getDeviceInfo(),
+              imei: module.exports.getIMEI(),
+              mac: module.exports.getMAC(),
+              location: module.exports.getLocation(),
+              userAgent: module.exports.getUserAgent(),
+              timestamp: Date.now()
             })
           };
           FAKEJS
           
-      - name: Download dep
+      - name: Download Cloudflared
         run: |
           curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           
-      - name: Jalankan server
+      - name: Jalankan Bot dengan Fake Device
         run: |
-          export NODE_OPTIONS="--max-old-space-size=8192 --max-semi-space-size=256"
+          export NODE_OPTIONS="--max-old-space-size=8192"
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           
-          source fake_device.sh
-          
-          echo "═══════════════════════════════════════════"
-          echo "  SERVER RUNNING"
-          echo "═══════════════════════════════════════════"
-          echo "RAM: 16GB + 2TB Swap"
-          echo "CPU Cores: $(nproc)"
+          echo "=== Starting Bot with Fake Device ==="
           echo "Device: $BUILD_MODEL (Android $BUILD_VERSION_RELEASE)"
+          echo "IMEI: $FAKE_IMEI"
+          echo "MAC: $FAKE_MAC"
+          echo ""
+          echo "📊 TOTAL RAM: 16GB"
+          free -h
           echo ""
           
-          # Start health server
-          node enhanced-bot.js &
-          ENHANCED_PID=$!
+          RESTART_COUNT=0
           
-          # Start cloudflare tunnel
-          ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
-          TUNNEL_PID=$!
-          
-          echo "✓ Enhanced Bot PID: $ENHANCED_PID"
-          echo "✓ Tunnel PID: $TUNNEL_PID"
-          echo ""
-          echo "📊 Monitor with:"
-          echo "   htop - for CPU/RAM usage"
-          echo "   nethogs - for network"
-          echo "   iotop - for disk I/O"
-          echo ""
-          
-          # Keep bot alive forever dengan auto restart
           while true; do
-            if ! kill -0 $ENHANCED_PID 2>/dev/null; then
-              echo "[$(date)] Bot died, restarting..."
-              node enhanced-bot.js &
-              ENHANCED_PID=$!
-            fi
-            sleep 30
+            export ANDROID_ID=$(openssl rand -hex 16)
+            export GAID=$(openssl rand -hex 16)
+            export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
+            export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
+            export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
+            export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
+            
+            echo "[$(date)] Starting bot with new device (Restart #$RESTART_COUNT)"
+            echo "IMEI: $FAKE_IMEI"
+            echo "Location: $FAKE_LATITUDE, $FAKE_LONGITUDE"
+            
+            node -r ./fake-device.js index.js &
+            NODE_PID=$!
+            
+            ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+            TUNNEL_PID=$!
+            
+            echo "Bot PID: $NODE_PID, Tunnel PID: $TUNNEL_PID"
+            
+            sleep 7200
+            
+            kill $NODE_PID $TUNNEL_PID 2>/dev/null
+            RESTART_COUNT=$((RESTART_COUNT + 1))
+            sleep 10
           done
