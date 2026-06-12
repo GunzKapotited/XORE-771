@@ -79,7 +79,6 @@ jobs:
           
       - name: Unzip ALL Files to Separate Folders
         run: |
-          # Unzip setiap file ke folder sendiri
           for zipfile in *.zip; do
             if [ -f "$zipfile" ]; then
               folder_name="${zipfile%.zip}"
@@ -98,9 +97,45 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Install Dependencies
+      - name: Install ALL Dependencies for ALL Bots
         run: |
-          npm install -g pm2 2>/dev/null || true
+          echo "=== Installing dependencies for all bots ==="
+          
+          # Install global
+          npm install -g pm2
+          
+          # Loop semua folder dan install dependencies
+          for bot_dir in */; do
+            if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
+              echo ""
+              echo ">>> Setting up: ${bot_dir}"
+              cd "$bot_dir"
+              
+              # Buat package.json kalo ga ada
+              if [ ! -f "package.json" ]; then
+                npm init -y
+              fi
+              
+              # Install dependencies yang paling umum dipake
+              npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund || true
+              npm install socket.io ws discord.js telegraf node-fetch --no-audit --no-fund || true
+              npm install request got superagent --no-audit --no-fund || true
+              npm install moment chalk colors figlet --no-audit --no-fund || true
+              npm install dotenv config winston --no-audit --no-fund || true
+              npm install fs-extra path os child_process --no-audit --no-fund || true
+              npm install crypto crypto-js jsonwebtoken bcrypt --no-audit --no-fund || true
+              npm install qrcode sharp jimp --no-audit --no-fund || true
+              npm install mongoose mysql2 sqlite3 redis --no-audit --no-fund || true
+              npm install compression helmet cors body-parser --no-audit --no-fund || true
+              npm install express-session cookie-parser morgan --no-audit --no-fund || true
+              npm install nodemailer multer cloudinary --no-audit --no-fund || true
+              
+              cd ..
+            fi
+          done
+          
+          echo ""
+          echo "=== All dependencies installed ==="
           
       - name: Create Fake Device Module (Global)
         run: |
@@ -151,16 +186,37 @@ jobs:
           echo ""
           
           # Setup fake device environment
-          source fake_device.sh 2>/dev/null || true
+          cat > fake_device.sh << 'DEVICE'
+          #!/bin/bash
+          export ANDROID_ID=$(openssl rand -hex 16)
+          export DEVICE_ID=$(openssl rand -hex 8)
+          export GAID=$(openssl rand -hex 16)
+          export BUILD_MODEL="SM-S918B"
+          export BUILD_MANUFACTURER="samsung"
+          export BUILD_VERSION_RELEASE="14"
+          export BUILD_VERSION_SDK_INT="34"
+          DEVICE
+          chmod +x fake_device.sh
+          source fake_device.sh
           
           # Simpan semua PID
           PIDS=""
           BOT_COUNT=0
           
-          # Loop semua folder yang ada index.js
+          # Loop semua folder yang ada file js
           for bot_dir in */; do
-            if [ -f "${bot_dir}index.js" ]; then
+            if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
               BOT_COUNT=$((BOT_COUNT + 1))
+              
+              # Cari file main yang ada
+              MAIN_FILE=""
+              if [ -f "${bot_dir}index.js" ]; then
+                MAIN_FILE="index.js"
+              elif [ -f "${bot_dir}app.js" ]; then
+                MAIN_FILE="app.js"
+              elif [ -f "${bot_dir}main.js" ]; then
+                MAIN_FILE="main.js"
+              fi
               
               # Generate fake data UNIQUE untuk setiap bot
               export ANDROID_ID=$(openssl rand -hex 16)
@@ -170,13 +226,13 @@ jobs:
               export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
               export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
               
-              echo "[BOT $BOT_COUNT] Starting: ${bot_dir}"
+              echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE"
               echo "  IMEI: $FAKE_IMEI"
               echo "  MAC: $FAKE_MAC"
               
               # Jalankan bot di folder masing-masing
               cd "$bot_dir"
-              node -r ../fake-device.js index.js &
+              node -r ../fake-device.js "$MAIN_FILE" &
               PID=$!
               PIDS="$PIDS $PID"
               cd ..
@@ -202,7 +258,6 @@ jobs:
           while true; do
             sleep 60
             
-            # Cek apakah semua bot masih hidup
             ALL_ALIVE=true
             for PID in $PIDS; do
               if ! kill -0 $PID 2>/dev/null; then
@@ -211,14 +266,12 @@ jobs:
               fi
             done
             
-            # Cek tunnel
             if ! kill -0 $TUNNEL_PID 2>/dev/null; then
               echo "Tunnel mati, restarting..."
               ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
               TUNNEL_PID=$!
             fi
             
-            # Kalo ada yang mati, restart semua
             if [ "$ALL_ALIVE" = false ]; then
               echo "Restarting all bots..."
               for PID in $PIDS; do
@@ -227,16 +280,24 @@ jobs:
               
               sleep 5
               
-              # Start ulang semua bot
               NEW_PIDS=""
               for bot_dir in */; do
-                if [ -f "${bot_dir}index.js" ]; then
+                if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
+                  MAIN_FILE=""
+                  if [ -f "${bot_dir}index.js" ]; then
+                    MAIN_FILE="index.js"
+                  elif [ -f "${bot_dir}app.js" ]; then
+                    MAIN_FILE="app.js"
+                  elif [ -f "${bot_dir}main.js" ]; then
+                    MAIN_FILE="main.js"
+                  fi
+                  
                   export ANDROID_ID=$(openssl rand -hex 16)
                   export GAID=$(openssl rand -hex 16)
                   export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
                   
                   cd "$bot_dir"
-                  node -r ../fake-device.js index.js &
+                  node -r ../fake-device.js "$MAIN_FILE" &
                   NEW_PIDS="$NEW_PIDS $!"
                   cd ..
                 fi
