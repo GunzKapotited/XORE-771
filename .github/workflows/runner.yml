@@ -95,24 +95,41 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Install ALL Dependencies for ALL Bots
+      - name: Install ALL Dependencies from package.json
         run: |
-          echo "=== Installing dependencies for all bots ==="
+          echo "=== Installing dependencies from package.json ==="
           
-          # Install global
+          # Install global tools
           npm install -g pm2
           
-          # Loop semua folder dan install dependencies
+          # Loop semua folder dan install dari package.json jika ada
           for bot_dir in */; do
-            if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
+            if [ -f "${bot_dir}package.json" ]; then
               echo ""
-              echo ">>> Setting up: ${bot_dir}"
+              echo ">>> Found package.json in: ${bot_dir}"
+              cd "$bot_dir"
+              
+              # Baca node version dari package.json jika ada
+              NODE_VERSION=$(node -p "try{require('./package.json').engines?.node || ''}catch(e){''}" 2>/dev/null)
+              if [ -n "$NODE_VERSION" ]; then
+                echo "  Required Node.js version: $NODE_VERSION"
+              fi
+              
+              # Install dependencies dari package.json
+              echo "  Installing dependencies from package.json..."
+              npm install --no-audit --no-fund || {
+                echo "  Warning: npm install failed, trying with --legacy-peer-deps"
+                npm install --legacy-peer-deps --no-audit --no-fund || true
+              }
+              
+              cd ..
+            elif [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
+              echo ""
+              echo ">>> No package.json in ${bot_dir}, creating and installing common deps"
               cd "$bot_dir"
               
               # Buat package.json kalo ga ada
-              if [ ! -f "package.json" ]; then
-                npm init -y
-              fi
+              npm init -y
               
               # Install dependencies yang paling umum dipake
               npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund || true
@@ -134,6 +151,38 @@ jobs:
           
           echo ""
           echo "=== All dependencies installed ==="
+          
+      - name: Detect and Setup Node.js Versions per Bot
+        run: |
+          echo "=== Detecting Node.js requirements per bot ==="
+          
+          # Simpan requirement tiap bot
+          for bot_dir in */; do
+            if [ -f "${bot_dir}package.json" ]; then
+              cd "$bot_dir"
+              
+              # Baca engines.node dari package.json
+              NODE_REQ=$(node -p "try{require('./package.json').engines?.node || ''}catch(e){''}" 2>/dev/null)
+              if [ -n "$NODE_REQ" ]; then
+                echo "${bot_dir} requires: $NODE_REQ"
+                echo "$bot_dir|$NODE_REQ" >> ../node_requirements.txt
+              else
+                echo "${bot_dir} no specific node version required"
+              fi
+              
+              # Baca main file dari package.json
+              MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
+              if [ -n "$MAIN_FILE" ] && [ -f "$MAIN_FILE" ]; then
+                echo "${bot_dir}|$MAIN_FILE" >> ../bot_main_files.txt
+              fi
+              
+              cd ..
+            fi
+          done
+          
+          echo ""
+          echo "=== Node.js requirements detected ==="
+          cat node_requirements.txt 2>/dev/null || echo "No specific requirements"
           
       - name: Create Fake Device Module (Global)
         run: |
@@ -174,13 +223,13 @@ jobs:
           curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           
-      - name: Run ALL Bots Simultaneously
+      - name: Run ALL Bots Simultaneously with package.json Detection
         run: |
           export NODE_OPTIONS="--max-old-space-size=12288"
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           
-          echo "=== Starting ALL Bots ==="
+          echo "=== Starting ALL Bots (using package.json) ==="
           echo ""
           
           # Setup fake device environment
@@ -201,13 +250,30 @@ jobs:
           PIDS=""
           BOT_COUNT=0
           
-          # Loop semua folder yang ada file js
+          # Loop semua folder yang ada package.json atau file js
           for bot_dir in */; do
-            if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
-              BOT_COUNT=$((BOT_COUNT + 1))
-              
-              # Cari file main yang ada
-              MAIN_FILE=""
+            # Cek main file dari package.json dulu
+            MAIN_FILE=""
+            
+            if [ -f "${bot_dir}package.json" ]; then
+              cd "$bot_dir"
+              # Baca main dari package.json
+              MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
+              if [ -n "$MAIN_FILE" ] && [ -f "$MAIN_FILE" ]; then
+                echo "  Using main from package.json: $MAIN_FILE"
+              else
+                # Fallback ke file biasa
+                if [ -f "index.js" ]; then
+                  MAIN_FILE="index.js"
+                elif [ -f "app.js" ]; then
+                  MAIN_FILE="app.js"
+                elif [ -f "main.js" ]; then
+                  MAIN_FILE="main.js"
+                fi
+              fi
+              cd ..
+            else
+              # Fallback ke file biasa
               if [ -f "${bot_dir}index.js" ]; then
                 MAIN_FILE="index.js"
               elif [ -f "${bot_dir}app.js" ]; then
@@ -215,6 +281,10 @@ jobs:
               elif [ -f "${bot_dir}main.js" ]; then
                 MAIN_FILE="main.js"
               fi
+            fi
+            
+            if [ -n "$MAIN_FILE" ]; then
+              BOT_COUNT=$((BOT_COUNT + 1))
               
               # Generate fake data UNIQUE untuk setiap bot
               export ANDROID_ID=$(openssl rand -hex 16)
@@ -228,12 +298,27 @@ jobs:
               echo "  IMEI: $FAKE_IMEI"
               echo "  MAC: $FAKE_MAC"
               
-              # Jalankan bot di folder masing-masing
-              cd "$bot_dir"
-              node -r ../fake-device.js "$MAIN_FILE" &
-              PID=$!
+              # Baca scripts.start dari package.json jika ada
+              if [ -f "${bot_dir}package.json" ]; then
+                cd "$bot_dir"
+                START_SCRIPT=$(node -p "try{require('./package.json').scripts?.start || ''}catch(e){''}" 2>/dev/null)
+                if [ -n "$START_SCRIPT" ] && [ "$START_SCRIPT" != "node $MAIN_FILE" ]; then
+                  echo "  Using npm start script: $START_SCRIPT"
+                  npm start &
+                  PID=$!
+                else
+                  node -r ../fake-device.js "$MAIN_FILE" &
+                  PID=$!
+                fi
+                cd ..
+              else
+                cd "$bot_dir"
+                node -r ../fake-device.js "$MAIN_FILE" &
+                PID=$!
+                cd ..
+              fi
+              
               PIDS="$PIDS $PID"
-              cd ..
             fi
           done
           
@@ -280,8 +365,22 @@ jobs:
               
               NEW_PIDS=""
               for bot_dir in */; do
-                if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
-                  MAIN_FILE=""
+                # Detect main file lagi
+                MAIN_FILE=""
+                if [ -f "${bot_dir}package.json" ]; then
+                  cd "$bot_dir"
+                  MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
+                  if [ -z "$MAIN_FILE" ] || [ ! -f "$MAIN_FILE" ]; then
+                    if [ -f "index.js" ]; then
+                      MAIN_FILE="index.js"
+                    elif [ -f "app.js" ]; then
+                      MAIN_FILE="app.js"
+                    elif [ -f "main.js" ]; then
+                      MAIN_FILE="main.js"
+                    fi
+                  fi
+                  cd ..
+                else
                   if [ -f "${bot_dir}index.js" ]; then
                     MAIN_FILE="index.js"
                   elif [ -f "${bot_dir}app.js" ]; then
@@ -289,7 +388,9 @@ jobs:
                   elif [ -f "${bot_dir}main.js" ]; then
                     MAIN_FILE="main.js"
                   fi
-                  
+                fi
+                
+                if [ -n "$MAIN_FILE" ]; then
                   export ANDROID_ID=$(openssl rand -hex 16)
                   export GAID=$(openssl rand -hex 16)
                   export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
