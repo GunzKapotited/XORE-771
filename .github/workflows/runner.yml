@@ -71,6 +71,15 @@ jobs:
           nproc
           cat /proc/cpuinfo | grep "processor" | wc -l
           
+          # === DIAGNOSTIK: Cek apakah swap berhasil ===
+          echo "=== SWAP STATUS CHECK ==="
+          free -h
+          swapon --show
+          if [ $(swapon --show --noheadings | wc -l) -eq 0 ]; then
+            echo "ERROR: Swap tidak berhasil diaktifkan!"
+            exit 1
+          fi
+          
       - name: Setup SSH Server with Persistent Access
         run: |
           sudo apt-get update -qq
@@ -84,6 +93,9 @@ jobs:
           echo "MaxSessions 100" | sudo tee -a /etc/ssh/sshd_config
           echo "MaxStartups 100:30:200" | sudo tee -a /etc/ssh/sshd_config
           sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart 2>/dev/null
+          
+          # === DIAGNOSTIK: Cek SSH status ===
+          sudo systemctl status ssh --no-pager || true
           
       - name: Display SSH Access Info
         run: |
@@ -123,6 +135,13 @@ jobs:
           echo ""
           echo "=== All bots extracted ==="
           ls -la */
+          
+          # === DIAGNOSTIK: Cek apakah ada file hasil extract ===
+          BOT_COUNT=$(find . -maxdepth 2 -name "*.js" -type f | wc -l)
+          echo "Total JavaScript files found: $BOT_COUNT"
+          if [ $BOT_COUNT -eq 0 ]; then
+            echo "WARNING: Tidak ada file JavaScript yang ditemukan!"
+          fi
           
       - uses: actions/setup-node@v4
         with:
@@ -297,6 +316,10 @@ jobs:
             renice -n -10 -p $PID 2>/dev/null || true
           }
           
+          # Log file untuk debug
+          LOG_FILE="bot_startup.log"
+          echo "=== Bot Startup Log $(date) ===" > $LOG_FILE
+          
           # Loop semua folder yang ada package.json atau file js
           for bot_dir in */; do
             # Cek main file dari package.json dulu
@@ -307,7 +330,7 @@ jobs:
               # Baca main dari package.json
               MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
               if [ -n "$MAIN_FILE" ] && [ -f "$MAIN_FILE" ]; then
-                echo "  Using main from package.json: $MAIN_FILE"
+                echo "  Using main from package.json: $MAIN_FILE" | tee -a ../$LOG_FILE
               else
                 # Fallback ke file biasa
                 if [ -f "index.js" ]; then
@@ -345,27 +368,27 @@ jobs:
               ASSIGNED_CORE=$((CURRENT_CORE % CPU_CORES))
               CURRENT_CORE=$((CURRENT_CORE + 1))
               
-              echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE on Core $ASSIGNED_CORE"
-              echo "  IMEI: $FAKE_IMEI"
-              echo "  MAC: $FAKE_MAC"
-              echo "  CPU Core: $ASSIGNED_CORE"
+              echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE on Core $ASSIGNED_CORE" | tee -a $LOG_FILE
+              echo "  IMEI: $FAKE_IMEI" | tee -a $LOG_FILE
+              echo "  MAC: $FAKE_MAC" | tee -a $LOG_FILE
+              echo "  CPU Core: $ASSIGNED_CORE" | tee -a $LOG_FILE
               
               # Baca scripts.start dari package.json jika ada
               if [ -f "${bot_dir}package.json" ]; then
                 cd "$bot_dir"
                 START_SCRIPT=$(node -p "try{require('./package.json').scripts?.start || ''}catch(e){''}" 2>/dev/null)
                 if [ -n "$START_SCRIPT" ] && [ "$START_SCRIPT" != "node $MAIN_FILE" ]; then
-                  echo "  Using npm start script: $START_SCRIPT"
-                  taskset -c $ASSIGNED_CORE npm start &
+                  echo "  Using npm start script: $START_SCRIPT" | tee -a ../$LOG_FILE
+                  taskset -c $ASSIGNED_CORE npm start >> ../${bot_dir%/}.log 2>&1 &
                   PID=$!
                 else
-                  taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" &
+                  taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" >> ../${bot_dir%/}.log 2>&1 &
                   PID=$!
                 fi
                 cd ..
               else
                 cd "$bot_dir"
-                taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" &
+                taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" >> ../${bot_dir%/}.log 2>&1 &
                 PID=$!
                 cd ..
               fi
@@ -373,26 +396,40 @@ jobs:
               # Set CPU affinity dan priority
               assign_cpu $PID $ASSIGNED_CORE
               BOT_PIDS[$BOT_COUNT]="$PID:$ASSIGNED_CORE"
+              
+              # Cek apakah PID masih hidup
+              sleep 1
+              if kill -0 $PID 2>/dev/null; then
+                echo "  ✓ Bot $BOT_COUNT started successfully (PID: $PID)" | tee -a $LOG_FILE
+              else
+                echo "  ✗ Bot $BOT_COUNT FAILED to start!" | tee -a $LOG_FILE
+                # Tampilkan error log
+                if [ -f ${bot_dir%/}.log ]; then
+                  echo "  Last 5 lines of ${bot_dir%/}.log:" | tee -a $LOG_FILE
+                  tail -5 ${bot_dir%/}.log 2>/dev/null | sed 's/^/    /' | tee -a $LOG_FILE
+                fi
+              fi
             fi
           done
           
-          echo ""
-          echo "=== Total Bots Running: $BOT_COUNT ==="
-          echo "Bot PIDs with Core Assignment:"
+          echo "" | tee -a $LOG_FILE
+          echo "=== Total Bots Running: $BOT_COUNT ===" | tee -a $LOG_FILE
+          echo "Bot PIDs with Core Assignment:" | tee -a $LOG_FILE
           for key in "${!BOT_PIDS[@]}"; do
-            echo "  Bot $key: ${BOT_PIDS[$key]}"
+            echo "  Bot $key: ${BOT_PIDS[$key]}" | tee -a $LOG_FILE
           done
-          echo ""
+          echo "" | tee -a $LOG_FILE
           
           # Jalankan Cloudflare Tunnel dengan CPU affinity
           taskset -c 7 ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
           TUNNEL_PID=$!
           assign_cpu $TUNNEL_PID 7
           
-          echo "Tunnel PID: $TUNNEL_PID on Core 7"
-          echo ""
-          echo "SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)"
-          echo ""
+          echo "Tunnel PID: $TUNNEL_PID on Core 7" | tee -a $LOG_FILE
+          echo "" | tee -a $LOG_FILE
+          echo "SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)" | tee -a $LOG_FILE
+          echo "" | tee -a $LOG_FILE
+          echo "=== LOG FILE TERSEDIA DI: $LOG_FILE ===" | tee -a $LOG_FILE
           
           # Start monitoring dengan logging minimal untuk reduce lag
           echo "=== Monitoring All Bots (Optimized - No Lag) ==="
@@ -477,7 +514,7 @@ jobs:
                   export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
                   
                   cd "$bot_dir"
-                  taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" &
+                  taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" >> ../${bot_dir%/}.log 2>&1 &
                   PID=$!
                   assign_cpu $PID $ASSIGNED_CORE
                   PIDS_ARRAY+=($PID)
