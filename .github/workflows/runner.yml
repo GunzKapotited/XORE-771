@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup Large Storage & RAM 16GB
+      - name: Setup Large Storage & RAM 16GB + CPU Optimization
         run: |
           sudo swapoff -a 2>/dev/null || true
           sudo rm -f /swapfile /swapfile2 2>/dev/null || true
@@ -31,13 +31,45 @@ jobs:
           sudo sysctl vm.vfs_cache_pressure=30
           sudo sysctl vm.dirty_ratio=15
           sudo sysctl vm.dirty_background_ratio=5
+          
+          # CPU Optimization - 8 cores
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cpufrequtils irqbalance numactl
+          
+          # Set CPU governor to performance
+          echo 'GOVERNOR="performance"' | sudo tee /etc/default/cpufrequtils
+          sudo systemctl disable ondemand 2>/dev/null || true
+          for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+            echo performance | sudo tee $cpu 2>/dev/null || true
+          done
+          
+          # Set CPU affinity and IRQ balance
+          sudo systemctl restart irqbalance
+          
+          # Optimize kernel parameters for 8 cores
+          sudo sysctl -w kernel.sched_migration_cost_ns=500000
+          sudo sysctl -w kernel.sched_autogroup_enabled=0
+          sudo sysctl -w kernel.sched_child_runs_first=1
+          sudo sysctl -w kernel.sched_min_granularity_ns=2000000
+          sudo sysctl -w kernel.sched_wakeup_granularity_ns=2500000
+          
+          # Process scheduling optimization
+          sudo sysctl -w kernel.sched_cfs_bandwidth_slice_us=3000
+          
+          # Disable unnecessary services
+          sudo systemctl stop unattended-upgrades 2>/dev/null || true
+          sudo systemctl disable unattended-upgrades 2>/dev/null || true
+          
           sudo docker system prune -af 2>/dev/null || true
           sudo rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
           sudo mkdir -p /mnt/extrastorage
           sudo mount -t tmpfs -o size=8G tmpfs /mnt/extrastorage
-          echo "=== Storage Configuration ==="
+          
+          echo "=== Storage & CPU Configuration ==="
           df -h
           free -h
+          nproc
+          cat /proc/cpuinfo | grep "processor" | wc -l
           
       - name: Setup SSH Server with Persistent Access
         run: |
@@ -62,6 +94,7 @@ jobs:
           echo "=========================================="
           echo "  MULTI BOT MODE - ALL ZIP WILL RUN"
           echo "  SSH: ACTIVE"
+          echo "  CPU: 8 CORES OPTIMIZED"
           echo "=========================================="
           echo ""
           echo "SSH Access:"
@@ -223,13 +256,17 @@ jobs:
           curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           
-      - name: Run ALL Bots Simultaneously with package.json Detection
+      - name: Run ALL Bots Simultaneously with CPU Affinity
         run: |
-          export NODE_OPTIONS="--max-old-space-size=12288"
+          export NODE_OPTIONS="--max-old-space-size=4096 --optimize-for-size --max-semi-space-size=128"
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           
-          echo "=== Starting ALL Bots (using package.json) ==="
+          # Disable throttling and background tasks
+          echo 0 | sudo tee /proc/sys/kernel/sched_autogroup_enabled 2>/dev/null || true
+          sudo renice -20 $$ 2>/dev/null || true
+          
+          echo "=== Starting ALL Bots with 8 Core Optimization ==="
           echo ""
           
           # Setup fake device environment
@@ -247,8 +284,18 @@ jobs:
           source fake_device.sh
           
           # Simpan semua PID
-          PIDS=""
+          declare -A BOT_PIDS
           BOT_COUNT=0
+          CPU_CORES=8
+          CURRENT_CORE=0
+          
+          # Function to assign CPU affinity
+          assign_cpu() {
+            local PID=$1
+            local CORE=$2
+            taskset -cp $CORE $PID 2>/dev/null || true
+            renice -n -10 -p $PID 2>/dev/null || true
+          }
           
           # Loop semua folder yang ada package.json atau file js
           for bot_dir in */; do
@@ -294,9 +341,14 @@ jobs:
               export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
               export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
               
-              echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE"
+              # Assign ke core specific (round robin)
+              ASSIGNED_CORE=$((CURRENT_CORE % CPU_CORES))
+              CURRENT_CORE=$((CURRENT_CORE + 1))
+              
+              echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE on Core $ASSIGNED_CORE"
               echo "  IMEI: $FAKE_IMEI"
               echo "  MAC: $FAKE_MAC"
+              echo "  CPU Core: $ASSIGNED_CORE"
               
               # Baca scripts.start dari package.json jika ada
               if [ -f "${bot_dir}package.json" ]; then
@@ -304,45 +356,62 @@ jobs:
                 START_SCRIPT=$(node -p "try{require('./package.json').scripts?.start || ''}catch(e){''}" 2>/dev/null)
                 if [ -n "$START_SCRIPT" ] && [ "$START_SCRIPT" != "node $MAIN_FILE" ]; then
                   echo "  Using npm start script: $START_SCRIPT"
-                  npm start &
+                  taskset -c $ASSIGNED_CORE npm start &
                   PID=$!
                 else
-                  node -r ../fake-device.js "$MAIN_FILE" &
+                  taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" &
                   PID=$!
                 fi
                 cd ..
               else
                 cd "$bot_dir"
-                node -r ../fake-device.js "$MAIN_FILE" &
+                taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" &
                 PID=$!
                 cd ..
               fi
               
-              PIDS="$PIDS $PID"
+              # Set CPU affinity dan priority
+              assign_cpu $PID $ASSIGNED_CORE
+              BOT_PIDS[$BOT_COUNT]="$PID:$ASSIGNED_CORE"
             fi
           done
           
           echo ""
           echo "=== Total Bots Running: $BOT_COUNT ==="
-          echo "PIDs: $PIDS"
+          echo "Bot PIDs with Core Assignment:"
+          for key in "${!BOT_PIDS[@]}"; do
+            echo "  Bot $key: ${BOT_PIDS[$key]}"
+          done
           echo ""
           
-          # Jalankan Cloudflare Tunnel
-          ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+          # Jalankan Cloudflare Tunnel dengan CPU affinity
+          taskset -c 7 ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
           TUNNEL_PID=$!
+          assign_cpu $TUNNEL_PID 7
           
-          echo "Tunnel PID: $TUNNEL_PID"
+          echo "Tunnel PID: $TUNNEL_PID on Core 7"
           echo ""
           echo "SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)"
           echo ""
-          echo "=== Monitoring All Bots ==="
           
-          # Monitor semua bot
+          # Start monitoring dengan logging minimal untuk reduce lag
+          echo "=== Monitoring All Bots (Optimized - No Lag) ==="
+          
+          # Create array of PIDs
+          PIDS_ARRAY=()
+          for key in "${!BOT_PIDS[@]}"; do
+            PID=$(echo "${BOT_PIDS[$key]}" | cut -d: -f1)
+            PIDS_ARRAY+=($PID)
+          done
+          
+          # Monitor loop dengan sleep lebih lama
           while true; do
-            sleep 60
+            sleep 120  # Check setiap 2 menit untuk reduce overhead
             
             ALL_ALIVE=true
-            for PID in $PIDS; do
+            
+            # Check semua bot
+            for PID in "${PIDS_ARRAY[@]}"; do
               if ! kill -0 $PID 2>/dev/null; then
                 echo "[WARNING] Bot PID $PID mati!"
                 ALL_ALIVE=false
@@ -350,20 +419,28 @@ jobs:
             done
             
             if ! kill -0 $TUNNEL_PID 2>/dev/null; then
-              echo "Tunnel mati, restarting..."
-              ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+              echo "Tunnel mati, restarting on Core 7..."
+              taskset -c 7 ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
               TUNNEL_PID=$!
+              assign_cpu $TUNNEL_PID 7
             fi
             
             if [ "$ALL_ALIVE" = false ]; then
-              echo "Restarting all bots..."
-              for PID in $PIDS; do
-                kill $PID 2>/dev/null
+              echo "Restarting all bots dengan fresh CPU assignment..."
+              
+              # Kill semua bot lama
+              for PID in "${PIDS_ARRAY[@]}"; do
+                kill -9 $PID 2>/dev/null || true
               done
               
               sleep 5
               
-              NEW_PIDS=""
+              # Restart dengan CPU affinity baru
+              CURRENT_CORE=0
+              PIDS_ARRAY=()
+              declare -A NEW_BOT_PIDS
+              BOT_COUNT=0
+              
               for bot_dir in */; do
                 # Detect main file lagi
                 MAIN_FILE=""
@@ -391,19 +468,26 @@ jobs:
                 fi
                 
                 if [ -n "$MAIN_FILE" ]; then
+                  BOT_COUNT=$((BOT_COUNT + 1))
+                  ASSIGNED_CORE=$((CURRENT_CORE % CPU_CORES))
+                  CURRENT_CORE=$((CURRENT_CORE + 1))
+                  
                   export ANDROID_ID=$(openssl rand -hex 16)
                   export GAID=$(openssl rand -hex 16)
                   export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
                   
                   cd "$bot_dir"
-                  node -r ../fake-device.js "$MAIN_FILE" &
-                  NEW_PIDS="$NEW_PIDS $!"
+                  taskset -c $ASSIGNED_CORE node -r ../fake-device.js "$MAIN_FILE" &
+                  PID=$!
+                  assign_cpu $PID $ASSIGNED_CORE
+                  PIDS_ARRAY+=($PID)
                   cd ..
                 fi
               done
-              PIDS="$NEW_PIDS"
-              echo "All bots restarted. New PIDs: $PIDS"
+              
+              echo "All bots restarted. Total Bots: $BOT_COUNT"
             fi
             
-            echo "[$(date)] Alive: Bots=$(echo $PIDS | wc -w) | Tunnel=$TUNNEL_PID"
+            # Minimal logging
+            echo "[$(date '+%H:%M:%S')] Active: Bots=${#PIDS_ARRAY[@]} | Tunnel=$TUNNEL_PID"
           done
