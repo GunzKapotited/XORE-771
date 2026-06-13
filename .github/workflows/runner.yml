@@ -19,7 +19,7 @@ jobs:
         run: |
           sudo swapoff -a 2>/dev/null || true
           sudo rm -f /swapfile /swapfile2 2>/dev/null || true
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=16384 status=progress
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=10384 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
