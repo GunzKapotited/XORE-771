@@ -77,19 +77,19 @@ jobs:
           
       - name: Unzip ALL Files to Separate Folders
         run: |
-          for zipfile in *.zip; do
-            if [ -f "$zipfile" ]; then
-              folder_name="${zipfile%.zip}"
-              echo "Extracting $zipfile to $folder_name/"
-              mkdir -p "$folder_name"
-              unzip -o "$zipfile" -d "$folder_name"
-              rm -f "$zipfile"
-            fi
+          # Unzip semua zip file termasuk yang di dalam folder
+          find . -name "*.zip" -type f | while read zipfile; do
+            folder_name="${zipfile%.zip}"
+            folder_name=$(dirname "$zipfile")/$(basename "$folder_name")
+            echo "Extracting $zipfile to $folder_name/"
+            mkdir -p "$folder_name"
+            unzip -o "$zipfile" -d "$folder_name"
+            rm -f "$zipfile"
           done 2>/dev/null || true
           
           echo ""
           echo "=== All bots extracted ==="
-          ls -la */
+          find . -type f -name "*.js" | head -20
           
       - uses: actions/setup-node@v4
         with:
@@ -99,37 +99,29 @@ jobs:
         run: |
           echo "=== Installing dependencies for all bots ==="
           
-          # Install global
           npm install -g pm2
           
-          # Loop semua folder dan install dependencies
-          for bot_dir in */; do
-            if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
-              echo ""
-              echo ">>> Setting up: ${bot_dir}"
-              cd "$bot_dir"
-              
-              # Buat package.json kalo ga ada
-              if [ ! -f "package.json" ]; then
-                npm init -y
-              fi
-              
-              # Install dependencies yang paling umum dipake
-              npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund || true
-              npm install socket.io ws discord.js telegraf node-fetch --no-audit --no-fund || true
-              npm install request got superagent --no-audit --no-fund || true
-              npm install moment chalk colors figlet --no-audit --no-fund || true
-              npm install dotenv config winston --no-audit --no-fund || true
-              npm install fs-extra path os child_process --no-audit --no-fund || true
-              npm install crypto crypto-js jsonwebtoken bcrypt --no-audit --no-fund || true
-              npm install qrcode sharp jimp --no-audit --no-fund || true
-              npm install mongoose mysql2 sqlite3 redis --no-audit --no-fund || true
-              npm install compression helmet cors body-parser --no-audit --no-fund || true
-              npm install express-session cookie-parser morgan --no-audit --no-fund || true
-              npm install nodemailer multer cloudinary --no-audit --no-fund || true
-              
-              cd ..
+          # Cari semua folder yang memiliki package.json atau file js
+          find . -type f \( -name "package.json" -o -name "index.js" -o -name "app.js" -o -name "main.js" -o -name "bot.js" \) -not -path "*/node_modules/*" | while read file; do
+            bot_dir=$(dirname "$file")
+            
+            # Skip root directory
+            if [ "$bot_dir" = "." ]; then
+              continue
             fi
+            
+            echo ""
+            echo ">>> Setting up: $bot_dir"
+            cd "$bot_dir"
+            
+            if [ -f "package.json" ]; then
+              npm install --no-audit --no-fund || true
+            else
+              npm init -y
+              npm install express axios puppeteer --no-audit --no-fund || true
+            fi
+            
+            cd "$OLDPWD"
           done
           
           echo ""
@@ -180,7 +172,7 @@ jobs:
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           
-          echo "=== Starting ALL Bots ==="
+          echo "=== Starting ALL Bots (termasuk di dalam folder) ==="
           echo ""
           
           # Setup fake device environment
@@ -197,26 +189,92 @@ jobs:
           chmod +x fake_device.sh
           source fake_device.sh
           
-          # Simpan semua PID
-          PIDS=""
-          BOT_COUNT=0
+          # ============================================
+          # FUNGSI DETEKSI FILE UTAMA (RECURSIVE)
+          # ============================================
+          detect_main_file() {
+            local dir="$1"
+            
+            # Cek package.json
+            if [ -f "${dir}package.json" ]; then
+              MAIN_FILE=$(node -p "try { require('${dir}package.json').main } catch(e) { '' }" 2>/dev/null)
+              if [ -n "$MAIN_FILE" ] && [ -f "${dir}${MAIN_FILE}" ]; then
+                echo "$MAIN_FILE"
+                return 0
+              fi
+            fi
+            
+            # Cek file umum
+            for main_file in "index.js" "app.js" "main.js" "bot.js" "server.js" "start.js"; do
+              if [ -f "${dir}${main_file}" ]; then
+                echo "$main_file"
+                return 0
+              fi
+            done
+            
+            return 1
+          }
           
-          # Loop semua folder yang ada file js
-          for bot_dir in */; do
-            if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
+          rm -f /tmp/bot_pids.txt /tmp/bot_list.txt
+          
+          # ============================================
+          # SCAN SEMUA FOLDER (TERMASUK NESTED)
+          # ============================================
+          echo ">>> Mencari semua bot (scan semua folder)..."
+          echo ""
+          
+          # Cari semua direktori (bukan hanya level 1)
+          # Hingga kedalaman 5 folder
+          find . -type d -not -path "*/node_modules/*" -not -path "." | while read bot_dir; do
+            # Convert ke relative path
+            bot_dir="${bot_dir#./}/"
+            
+            # Deteksi file utama
+            MAIN_FILE=$(detect_main_file "$bot_dir")
+            
+            if [ -n "$MAIN_FILE" ]; then
+              # Cek apakah sudah terdaftar
+              if ! grep -q "^${bot_dir}:" /tmp/bot_list.txt 2>/dev/null; then
+                echo "${bot_dir}:${MAIN_FILE}" >> /tmp/bot_list.txt
+                echo "  ✅ Found: ${bot_dir}${MAIN_FILE}"
+              fi
+            fi
+          done
+          
+          # ============================================
+          # TAMBAHKAN JUGA FILE JS LANGSUNG DI ROOT
+          # ============================================
+          for main_file in "index.js" "app.js" "main.js" "bot.js" "server.js"; do
+            if [ -f "$main_file" ]; then
+              echo "./:$main_file" >> /tmp/bot_list.txt
+              echo "  ✅ Found: ./$main_file"
+            fi
+          done
+          
+          # Hapus duplikat
+          if [ -f /tmp/bot_list.txt ]; then
+            sort -u /tmp/bot_list.txt -o /tmp/bot_list.txt
+          fi
+          
+          # ============================================
+          # EKSEKUSI SEMUA BOT
+          # ============================================
+          echo ""
+          echo ">>> Menjalankan semua bot..."
+          echo ""
+          
+          BOT_COUNT=0
+          PIDS=""
+          
+          if [ -f /tmp/bot_list.txt ]; then
+            while IFS=':' read -r bot_dir main_file; do
               BOT_COUNT=$((BOT_COUNT + 1))
               
-              # Cari file main yang ada
-              MAIN_FILE=""
-              if [ -f "${bot_dir}index.js" ]; then
-                MAIN_FILE="index.js"
-              elif [ -f "${bot_dir}app.js" ]; then
-                MAIN_FILE="app.js"
-              elif [ -f "${bot_dir}main.js" ]; then
-                MAIN_FILE="main.js"
-              fi
+              # Bersihkan path
+              bot_dir=$(echo "$bot_dir" | sed 's|^\./||')
+              main_file=$(echo "$main_file" | tr -d '\n\r')
               
-              # Generate fake data UNIQUE untuk setiap bot
+              # Generate fake data UNIQUE
               export ANDROID_ID=$(openssl rand -hex 16)
               export GAID=$(openssl rand -hex 16)
               export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
@@ -224,31 +282,68 @@ jobs:
               export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
               export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
               
-              echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE"
-              echo "  IMEI: $FAKE_IMEI"
-              echo "  MAC: $FAKE_MAC"
+              echo "=========================================="
+              echo "[BOT $BOT_COUNT] Starting"
+              echo "  📁 Folder: $bot_dir"
+              echo "  📄 File: $main_file"
+              echo "  📦 Package.json: $([ -f "${bot_dir}package.json" ] && echo "✅" || echo "❌")"
+              echo "  📱 IMEI: $FAKE_IMEI"
+              echo "  🔧 MAC: $FAKE_MAC"
+              echo "=========================================="
               
-              # Jalankan bot di folder masing-masing
+              # Pindah ke folder bot
+              if [ -n "$bot_dir" ] && [ "$bot_dir" != "./" ] && [ "$bot_dir" != "/" ]; then
+                cd "$bot_dir"
+                NODE_PATH="$OLDPWD/node_modules" node -r "$OLDPWD/fake-device.js" "$main_file" &
+                PID=$!
+                cd "$OLDPWD"
+              else
+                # Bot di root folder
+                node -r "$PWD/fake-device.js" "$main_file" &
+                PID=$!
+              fi
+              
+              PIDS="$PIDS $PID"
+              echo "$PID:${bot_dir}${main_file}" >> /tmp/bot_pids.txt
+              
+            done < /tmp/bot_list.txt
+          fi
+          
+          # ============================================
+          # FALLBACK: SCAN LANGSUNG FILE JS
+          # ============================================
+          if [ $BOT_COUNT -eq 0 ]; then
+            echo "Tidak ada bot ditemukan dengan metode folder, scanning file JS langsung..."
+            
+            find . -type f \( -name "index.js" -o -name "app.js" -o -name "main.js" -o -name "bot.js" \) -not -path "*/node_modules/*" | while read js_file; do
+              BOT_COUNT=$((BOT_COUNT + 1))
+              bot_dir=$(dirname "$js_file")/
+              main_file=$(basename "$js_file")
+              
+              echo "[BOT $BOT_COUNT] Starting: $js_file"
+              
               cd "$bot_dir"
-              node -r ../fake-device.js "$MAIN_FILE" &
+              node -r "$OLDPWD/fake-device.js" "$main_file" &
               PID=$!
               PIDS="$PIDS $PID"
-              cd ..
-            fi
-          done
+              cd "$OLDPWD"
+            done
+          fi
           
           echo ""
-          echo "=== Total Bots Running: $BOT_COUNT ==="
-          echo "PIDs: $PIDS"
+          echo "=========================================="
+          echo "  ✅ TOTAL BOTS RUNNING: $BOT_COUNT"
+          echo "  📋 PIDs: $PIDS"
+          echo "=========================================="
           echo ""
           
           # Jalankan Cloudflare Tunnel
           ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
           TUNNEL_PID=$!
           
-          echo "Tunnel PID: $TUNNEL_PID"
+          echo "🌐 Tunnel PID: $TUNNEL_PID"
           echo ""
-          echo "SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)"
+          echo "🔌 SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)"
           echo ""
           echo "=== Monitoring All Bots ==="
           
@@ -279,30 +374,25 @@ jobs:
               sleep 5
               
               NEW_PIDS=""
-              for bot_dir in */; do
-                if [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
-                  MAIN_FILE=""
-                  if [ -f "${bot_dir}index.js" ]; then
-                    MAIN_FILE="index.js"
-                  elif [ -f "${bot_dir}app.js" ]; then
-                    MAIN_FILE="app.js"
-                  elif [ -f "${bot_dir}main.js" ]; then
-                    MAIN_FILE="main.js"
-                  fi
-                  
-                  export ANDROID_ID=$(openssl rand -hex 16)
-                  export GAID=$(openssl rand -hex 16)
-                  export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
-                  
+              while IFS=':' read -r bot_dir main_file; do
+                export ANDROID_ID=$(openssl rand -hex 16)
+                export GAID=$(openssl rand -hex 16)
+                export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
+                
+                if [ -n "$bot_dir" ] && [ "$bot_dir" != "./" ] && [ "$bot_dir" != "/" ]; then
                   cd "$bot_dir"
-                  node -r ../fake-device.js "$MAIN_FILE" &
+                  node -r "$OLDPWD/fake-device.js" "$main_file" &
                   NEW_PIDS="$NEW_PIDS $!"
-                  cd ..
+                  cd "$OLDPWD"
+                else
+                  node -r "$PWD/fake-device.js" "$main_file" &
+                  NEW_PIDS="$NEW_PIDS $!"
                 fi
-              done
+              done < /tmp/bot_list.txt
+              
               PIDS="$NEW_PIDS"
               echo "All bots restarted. New PIDs: $PIDS"
             fi
             
-            echo "[$(date)] Alive: Bots=$(echo $PIDS | wc -w) | Tunnel=$TUNNEL_PID"
+            echo "[$(date)] ✅ Alive: Bots=$(echo $PIDS | wc -w) | Tunnel=$TUNNEL_PID"
           done
