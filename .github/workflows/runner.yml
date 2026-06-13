@@ -10,20 +10,20 @@ concurrency:
 jobs:
   bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 999999
+    timeout-minutes: 999999999
     
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup Large Storage & RAM 16GB
+      - name: Setup Large Storage
         run: |
           sudo swapoff -a 2>/dev/null || true
           sudo rm -f /swapfile /swapfile2 2>/dev/null || true
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=10384 status=progress
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=0 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          sudo dd if=/dev/zero of=/swapfile2 bs=1M count=4192 status=progress
+          sudo dd if=/dev/zero of=/swapfile2 bs=1M count=0 status=progress
           sudo chmod 600 /swapfile2
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
