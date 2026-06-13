@@ -118,6 +118,7 @@ jobs:
           # Download Flutter SDK
           cd /opt
           sudo git clone https://github.com/flutter/flutter.git -b stable
+          sudo chown -R $USER:$USER /opt/flutter
           sudo chmod -R 755 /opt/flutter
           
           # Set environment variables
