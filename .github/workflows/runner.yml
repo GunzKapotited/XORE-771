@@ -1,8 +1,6 @@
 name: Bot 24/7 UNLIMITED LIMITS - MULTI BOT
 
 on:
-  schedule:
-    - cron: '*/120 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -12,7 +10,7 @@ concurrency:
 jobs:
   bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 999999
+    timeout-minutes: 99999999999999
     
     steps:
       - uses: actions/checkout@v4
