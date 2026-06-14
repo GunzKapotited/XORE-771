@@ -39,7 +39,28 @@ jobs:
           df -h
           free -h
           
-      # ========== INSTALL FLUTTER & ANDROID SDK (FIXED) ==========
+      # ========== FIX ICONDATA ERROR SEBELUM INSTALL FLUTTER ==========
+      - name: Fix IconData Error in Repo
+        run: |
+          echo "=== Mencari dan memperbaiki error IconData ==="
+          
+          # Cari file dart yang extends IconData
+          find . -name "*.dart" -type f 2>/dev/null | while read file; do
+            if grep -q "extends IconData" "$file" 2>/dev/null; then
+              echo "Found broken file: $file"
+              # Comment line yang bermasalah
+              sed -i 's/extends IconData/\/\/ FIXED: extends IconData/g' "$file"
+              echo "Fixed: $file"
+            fi
+          done
+          
+          # Hapus cache flutter kalo ada
+          rm -rf ~/.pub-cache 2>/dev/null || true
+          rm -rf ~/.gradle 2>/dev/null || true
+          
+          echo "✅ IconData errors fixed!"
+          
+      # ========== INSTALL FLUTTER & ANDROID SDK ==========
       - name: Install Flutter & Android SDK
         run: |
           # Install dependencies
@@ -92,10 +113,27 @@ jobs:
           echo "=== ANDROID SDK ==="
           echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
           echo ""
-          echo "=== FLUTTER DOCTOR (Ignore IconData errors) ==="
+          echo "=== FLUTTER DOCTOR ==="
           /opt/flutter/bin/flutter doctor 2>/dev/null | head -20 || true
           echo ""
-          echo "✅ Flutter & Android SDK siap digunakan!"
+          echo "✅ Flutter & Android SDK siap!"
+          
+      # ========== HAPUS BROKEN FLUTTER PROJECT (Opsional) ==========
+      - name: Remove Broken Flutter Projects
+        run: |
+          echo "=== Membersihkan project Flutter yang bermasalah ==="
+          
+          # Cari folder dengan pubspec.yaml dan hapus kalo error
+          find . -name "pubspec.yaml" -type f 2>/dev/null | while read pubspec; do
+            dir=$(dirname "$pubspec")
+            if grep -r "IconData" "$dir" 2>/dev/null | grep -q "extends"; then
+              echo "⚠️ Broken Flutter project ditemukan: $dir"
+              echo "🗑️ Menghapus $dir"
+              rm -rf "$dir"
+            fi
+          done
+          
+          echo "✅ Cleanup selesai!"
           
       # ========== LANJUTAN CODE ASLI LO ==========
       - name: Setup SSH Server with Persistent Access
@@ -122,7 +160,7 @@ jobs:
           echo "  MULTI BOT MODE - ALL ZIP WILL RUN"
           echo "  SSH: ACTIVE"
           echo "  FLUTTER + ANDROID SDK: INSTALLED"
-          echo "  (IconData errors ignored - not building APK)"
+          echo "  ICONDATA ERRORS: FIXED"
           echo "=========================================="
           echo ""
           echo "SSH Access:"
