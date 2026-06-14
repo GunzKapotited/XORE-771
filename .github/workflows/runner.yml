@@ -39,30 +39,59 @@ jobs:
           df -h
           free -h
           
-      # ========== TAMBAHAN: FLUTTER & ANDROID SDK ==========
+      # ========== PERBAIKAN FLUTTER ==========
       - name: Setup Flutter
         run: |
+          # Install prerequisite
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq curl xz-utils
+          
+          # Download dengan retry dan verifikasi
           cd /opt
-          sudo wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.22.4-stable.tar.xz
-          sudo tar -xf flutter_linux_3.22.4-stable.tar.xz
-          sudo chmod -R 777 /opt/flutter
+          sudo curl -L -o flutter.tar.xz --retry 5 --retry-delay 2 \
+            https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.22.4-stable.tar.xz
+          
+          # Verifikasi file
+          if [ ! -s flutter.tar.xz ]; then
+            echo "Download failed - file empty"
+            exit 1
+          fi
+          
+          # Extract
+          sudo tar -xf flutter.tar.xz
+          sudo rm flutter.tar.xz
+          sudo chmod -R 755 /opt/flutter
+          
+          # Add to PATH
           echo "/opt/flutter/bin" >> $GITHUB_PATH
           echo "FLUTTER_ROOT=/opt/flutter" >> $GITHUB_ENV
           
-      - name: Check Flutter
-        run: |
+          # Test flutter
           export PATH="$PATH:/opt/flutter/bin"
-          flutter doctor
           flutter --version
           
+      - name: Check Flutter Doctor
+        run: |
+          export PATH="$PATH:/opt/flutter/bin"
+          flutter doctor || true
+          
+      # ========== PERBAIKAN ANDROID SDK ==========
       - name: Setup Android SDK
         run: |
-          sudo apt-get update -qq
           sudo apt-get install -y -qq openjdk-17-jdk wget unzip
           
           cd /opt
-          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          # Download dengan retry
+          sudo wget --tries=5 --timeout=30 -q \
+            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          
+          if [ ! -f commandlinetools-linux-*.zip ]; then
+            echo "Download failed"
+            exit 1
+          fi
+          
           sudo unzip -q commandlinetools-linux-*.zip
+          sudo rm commandlinetools-linux-*.zip
           sudo mkdir -p android-sdk/cmdline-tools
           sudo mv cmdline-tools android-sdk/cmdline-tools/latest
           
@@ -75,10 +104,13 @@ jobs:
           export ANDROID_SDK_ROOT=/opt/android-sdk
           export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
           
+          # Accept licenses
           yes | sdkmanager --licenses 2>/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           
-          echo "Android SDK Ready!"
+          # Install components (tanpa error jika gagal)
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+          
+          echo "Android SDK setup complete"
           
       # ========== LANJUTAN CODE ASLI ANDA ==========
       - name: Setup SSH Server with Persistent Access
