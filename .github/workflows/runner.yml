@@ -19,11 +19,11 @@ jobs:
         run: |
           sudo swapoff -a 2>/dev/null || true
           sudo rm -f /swapfile /swapfile2 2>/dev/null || true
-          sudo dd if=/dev/zero of=/swapfile bs=1M count=1500 status=progress
+          sudo dd if=/dev/zero of=/swapfile bs=1M count=500 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          sudo dd if=/dev/zero of=/swapfile2 bs=1M count=1000 status=progress
+          sudo dd if=/dev/zero of=/swapfile2 bs=1M count=500 status=progress
           sudo chmod 600 /swapfile2
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
@@ -39,6 +39,48 @@ jobs:
           df -h
           free -h
           
+      # ========== TAMBAHAN: FLUTTER & ANDROID SDK ==========
+      - name: Setup Flutter
+        run: |
+          cd /opt
+          sudo wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.22.4-stable.tar.xz
+          sudo tar -xf flutter_linux_3.22.4-stable.tar.xz
+          sudo chmod -R 777 /opt/flutter
+          echo "/opt/flutter/bin" >> $GITHUB_PATH
+          echo "FLUTTER_ROOT=/opt/flutter" >> $GITHUB_ENV
+          
+      - name: Check Flutter
+        run: |
+          export PATH="$PATH:/opt/flutter/bin"
+          flutter doctor
+          flutter --version
+          
+      - name: Setup Android SDK
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openjdk-17-jdk wget unzip
+          
+          cd /opt
+          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          sudo unzip -q commandlinetools-linux-*.zip
+          sudo mkdir -p android-sdk/cmdline-tools
+          sudo mv cmdline-tools android-sdk/cmdline-tools/latest
+          
+          echo "ANDROID_SDK_ROOT=/opt/android-sdk" >> $GITHUB_ENV
+          echo "/opt/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "/opt/android-sdk/platform-tools" >> $GITHUB_PATH
+          
+      - name: Install Android SDK Components
+        run: |
+          export ANDROID_SDK_ROOT=/opt/android-sdk
+          export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
+          
+          yes | sdkmanager --licenses 2>/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          
+          echo "Android SDK Ready!"
+          
+      # ========== LANJUTAN CODE ASLI ANDA ==========
       - name: Setup SSH Server with Persistent Access
         run: |
           sudo apt-get update -qq
@@ -62,6 +104,8 @@ jobs:
           echo "=========================================="
           echo "  MULTI BOT MODE - ALL ZIP WILL RUN"
           echo "  SSH: ACTIVE"
+          echo "  FLUTTER: READY"
+          echo "  ANDROID SDK: READY"
           echo "=========================================="
           echo ""
           echo "SSH Access:"
@@ -91,379 +135,6 @@ jobs:
           echo "=== All bots extracted ==="
           ls -la */
           
-      # ============ BUILD APK ANDROID DARI FLUTTER PROJECT ============
-      - name: Setup Android SDK for APK Building
-        run: |
-          echo "=== Setting up Android SDK ==="
-          
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq wget unzip curl git openjdk-17-jdk
-          
-          # Install Android SDK ke lokasi standar
-          export ANDROID_HOME=/usr/local/android-sdk
-          export ANDROID_SDK_ROOT=/usr/local/android-sdk
-          export GRADLE_USER_HOME=$HOME/.gradle
-          
-          sudo mkdir -p $ANDROID_HOME
-          sudo chown -R $USER:$USER $ANDROID_HOME
-          
-          cd $ANDROID_HOME
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-11076708_latest.zip
-          rm commandlinetools-linux-11076708_latest.zip
-          
-          # Setup directory structure yang benar
-          mkdir -p cmdline-tools
-          mv cmdline-tools cmdline-tools/temp
-          mv cmdline-tools/temp cmdline-tools/latest
-          
-          # Setup environment
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
-          
-          # Accept licenses dan install SDK components
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platform-tools" \
-            "platforms;android-34" \
-            "platforms;android-33" \
-            "build-tools;34.0.0" \
-            "build-tools;33.0.2" \
-            "cmdline-tools;latest" > /dev/null 2>&1
-
-      - name: Install Flutter with Error Handling
-        run: |
-          echo "=== Installing Flutter ==="
-          
-          # Install Flutter ke lokasi standar
-          FLUTTER_HOME=/opt/flutter
-          sudo mkdir -p $FLUTTER_HOME
-          sudo chown -R $USER:$USER $FLUTTER_HOME
-          
-          # Clone Flutter stable
-          git clone --depth 1 -b stable https://github.com/flutter/flutter.git $FLUTTER_HOME
-          
-          # Setup PATH
-          echo "$FLUTTER_HOME/bin" >> $GITHUB_PATH
-          echo "FLUTTER_HOME=$FLUTTER_HOME" >> $GITHUB_ENV
-          
-          # Run flutter doctor untuk setup awal
-          $FLUTTER_HOME/bin/flutter doctor -v
-          
-          # Precache untuk Android
-          $FLUTTER_HOME/bin/flutter precache
-
-      - name: Fix Common Flutter Issues
-        run: |
-          echo "=== Fixing common Flutter build issues ==="
-          
-          # Fix gradle wrapper permission
-          find . -name "gradlew" -exec chmod +x {} \; 2>/dev/null || true
-          
-          # Fix Android SDK location
-          export ANDROID_HOME=/usr/local/android-sdk
-          export ANDROID_SDK_ROOT=/usr/local/android-sdk
-          export GRADLE_USER_HOME=$HOME/.gradle
-          
-          # Create local.properties untuk setiap Flutter project
-          for project_dir in */; do
-            if [ -f "${project_dir}pubspec.yaml" ] && [ -d "${project_dir}android" ]; then
-              echo "Creating local.properties for ${project_dir}"
-              echo "sdk.dir=$ANDROID_HOME" > "${project_dir}android/local.properties"
-            fi
-          done
-
-      - name: Verify Flutter Project Structure
-        run: |
-          echo "=== Verifying Flutter project structure ==="
-          
-          # Debug: tampilkan semua folder yang ada
-          echo "All folders in workspace:"
-          ls -la
-          
-          # Loop semua folder untuk cek struktur Flutter
-          for project_dir in */; do
-            echo ""
-            echo "Checking: $project_dir"
-            
-            # Cek pubspec.yaml
-            if [ -f "${project_dir}pubspec.yaml" ]; then
-              echo "  âœ… Has pubspec.yaml"
-            else
-              echo "  âŒ No pubspec.yaml - not a Flutter project"
-              continue
-            fi
-            
-            # Cek folder android
-            if [ -d "${project_dir}android" ]; then
-              echo "  âœ… Has android folder"
-              
-              # Cek struktur android folder
-              if [ -f "${project_dir}android/app/build.gradle" ]; then
-                echo "  âœ… Has android/app/build.gradle"
-              else
-                echo "  âš ï¸ Missing android/app/build.gradle"
-              fi
-              
-              if [ -f "${project_dir}android/gradle/wrapper/gradle-wrapper.properties" ]; then
-                echo "  âœ… Has gradle wrapper"
-              else
-                echo "  âš ï¸ Missing gradle wrapper"
-              fi
-              
-              # Tampilkan isi android folder
-              echo "  Contents of android folder:"
-              ls -la "${project_dir}android/" | head -10
-              
-            else
-              echo "  âŒ No android folder - cannot build APK"
-              echo "  This Flutter project may be web-only or missing Android support"
-              
-              # Coba cek apakah ini Flutter module atau package
-              if [ -f "${project_dir}pubspec.yaml" ]; then
-                if grep -q "flutter:" "${project_dir}pubspec.yaml"; then
-                  echo "  âš ï¸ This is a Flutter project but missing android/ folder"
-                  echo "  Run: flutter create --platforms=android ."
-                fi
-              fi
-            fi
-            
-            # Cek lib folder
-            if [ -d "${project_dir}lib" ]; then
-              echo "  âœ… Has lib folder"
-              MAIN_DART=$(find "${project_dir}lib" -name "main.dart" | head -1)
-              if [ -n "$MAIN_DART" ]; then
-                echo "  âœ… Found main.dart at: $MAIN_DART"
-              fi
-            fi
-          done
-          
-      - name: Generate Missing Android Folder for Flutter Projects
-        run: |
-          echo "=== Generating missing android folders ==="
-          
-          export ANDROID_HOME=/usr/local/android-sdk
-          export ANDROID_SDK_ROOT=/usr/local/android-sdk
-          export GRADLE_USER_HOME=$HOME/.gradle
-          
-          for project_dir in */; do
-            # Cek apakah Flutter project tapi tidak ada android folder
-            if [ -f "${project_dir}pubspec.yaml" ] && [ ! -d "${project_dir}android" ]; then
-              echo ""
-              echo "ðŸ“± Generating android folder for: $project_dir"
-              
-              cd "$project_dir"
-              
-              # Create android platform
-              echo "  Running: flutter create --platforms=android ."
-              /opt/flutter/bin/flutter create --platforms=android . 2>&1 | tail -20
-              
-              # Cek hasil
-              if [ -d "android" ]; then
-                echo "  âœ… Android folder created successfully"
-                
-                # Buat local.properties
-                echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-                echo "  âœ… local.properties created"
-                
-                # Fix gradle wrapper
-                chmod +x android/gradlew 2>/dev/null || true
-              else
-                echo "  âŒ Failed to create android folder"
-              fi
-              
-              cd ..
-            fi
-          done
-          
-      - name: Fix Gradle and Android Build Files
-        run: |
-          echo "=== Fixing Gradle and Android build files ==="
-          
-          export ANDROID_HOME=/usr/local/android-sdk
-          export ANDROID_SDK_ROOT=/usr/local/android-sdk
-          export GRADLE_USER_HOME=$HOME/.gradle
-          
-          for project_dir in */; do
-            if [ -f "${project_dir}pubspec.yaml" ] && [ -d "${project_dir}android" ]; then
-              echo ""
-              echo "ðŸ”§ Fixing: $project_dir"
-              
-              cd "$project_dir"
-              
-              # Fix 1: Update gradle wrapper properties
-              if [ -f "android/gradle/wrapper/gradle-wrapper.properties" ]; then
-                # Update gradle distribution URL
-                sed -i 's|distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-7.5-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
-                echo "  âœ… Updated gradle-wrapper.properties"
-              fi
-              
-              # Fix 2: Update build.gradle untuk kompatibilitas
-              if [ -f "android/app/build.gradle" ]; then
-                # Update minSdkVersion jika terlalu rendah
-                sed -i 's/minSdkVersion [0-9]\+/minSdkVersion 21/' android/app/build.gradle
-                sed -i 's/targetSdkVersion [0-9]\+/targetSdkVersion 34/' android/app/build.gradle
-                sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 34/' android/app/build.gradle
-                echo "  âœ… Updated app/build.gradle"
-              fi
-              
-              # Fix 3: Update root build.gradle
-              if [ -f "android/build.gradle" ]; then
-                # Tambahkan repositories jika diperlukan
-                if ! grep -q "mavenCentral" android/build.gradle; then
-                  sed -i '/repositories {/a \        mavenCentral()' android/build.gradle
-                fi
-                echo "  âœ… Updated root build.gradle"
-              fi
-              
-              # Fix 4: Buat file properties lagi untuk memastikan
-              echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-              
-              # Fix 5: Fix permission gradlew
-              chmod +x android/gradlew 2>/dev/null || true
-              
-              cd ..
-            fi
-          done
-
-      - name: Build APK for Each Flutter Project
-        run: |
-          echo "=== Building APK for Flutter projects ==="
-          
-          export ANDROID_HOME=/usr/local/android-sdk
-          export ANDROID_SDK_ROOT=/usr/local/android-sdk
-          export GRADLE_USER_HOME=$HOME/.gradle
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-          
-          mkdir -p built_apks
-          
-          BUILD_FAILED=""
-          BUILD_SUCCESS=""
-          SKIPPED_COUNT=0
-          
-          # Loop semua folder
-          for project_dir in */; do
-            # Validasi ketat untuk Flutter project yang bisa di-build APK
-            IS_FLUTTER=false
-            HAS_ANDROID=false
-            
-            # Cek pubspec.yaml
-            if [ -f "${project_dir}pubspec.yaml" ]; then
-              IS_FLUTTER=true
-            fi
-            
-            # Cek android folder
-            if [ -d "${project_dir}android" ]; then
-              HAS_ANDROID=true
-            fi
-            
-            # Hanya build jika Flutter project DAN punya android folder
-            if [ "$IS_FLUTTER" = true ] && [ "$HAS_ANDROID" = true ]; then
-              echo ""
-              echo "========================================="
-              echo "ðŸ“± Building Flutter APK: $project_dir"
-              echo "========================================="
-              
-              cd "$project_dir"
-              
-              # Tampilkan info project
-              echo "ðŸ“Œ Project info:"
-              echo "   - Pubspec.yaml: âœ…"
-              echo "   - Android folder: âœ…"
-              echo "   - Android SDK: $ANDROID_HOME"
-              
-              # Clean project
-              echo "ðŸ§¹ Cleaning project..."
-              /opt/flutter/bin/flutter clean 2>/dev/null || true
-              
-              # Get packages
-              echo "ðŸ“¦ Getting packages..."
-              /opt/flutter/bin/flutter pub get
-              
-              # Build APK
-              echo "ðŸ”¨ Building APK..."
-              
-              # Try building dengan berbagai opsi
-              BUILD_SUCCESS_FLAG=false
-              
-              # Coba release build
-              if /opt/flutter/bin/flutter build apk --release --no-tree-shake-icons; then
-                # Cek hasil build
-                if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
-                  APK_NAME="${project_dir%/}_release.apk"
-                  cp "build/app/outputs/flutter-apk/app-release.apk" "../built_apks/$APK_NAME"
-                  echo "âœ… APK built: $APK_NAME"
-                  BUILD_SUCCESS_FLAG=true
-                  BUILD_SUCCESS="$BUILD_SUCCESS $APK_NAME"
-                elif [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
-                  APK_NAME="${project_dir%/}_release.apk"
-                  cp "build/app/outputs/apk/release/app-release.apk" "../built_apks/$APK_NAME"
-                  echo "âœ… APK built: $APK_NAME"
-                  BUILD_SUCCESS_FLAG=true
-                  BUILD_SUCCESS="$BUILD_SUCCESS $APK_NAME"
-                fi
-              fi
-              
-              # Jika release gagal, coba debug
-              if [ "$BUILD_SUCCESS_FLAG" = false ]; then
-                echo "âš ï¸ Release build failed, trying debug build..."
-                if /opt/flutter/bin/flutter build apk --debug; then
-                  if [ -f "build/app/outputs/flutter-apk/app-debug.apk" ]; then
-                    APK_NAME="${project_dir%/}_debug.apk"
-                    cp "build/app/outputs/flutter-apk/app-debug.apk" "../built_apks/$APK_NAME"
-                    echo "âœ… Debug APK built: $APK_NAME"
-                    BUILD_SUCCESS_FLAG=true
-                    BUILD_SUCCESS="$BUILD_SUCCESS $APK_NAME"
-                  fi
-                fi
-              fi
-              
-              if [ "$BUILD_SUCCESS_FLAG" = false ]; then
-                echo "âŒ Build failed for $project_dir"
-                BUILD_FAILED="$BUILD_FAILED $project_dir"
-              fi
-              
-              cd ..
-            elif [ "$IS_FLUTTER" = true ] && [ "$HAS_ANDROID" = false ]; then
-              echo ""
-              echo "âš ï¸ SKIPPING: $project_dir - Flutter project but no android folder"
-              echo "   This project may be web-only or needs 'flutter create --platforms=android .'"
-              SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
-            else
-              echo "[SKIP] $project_dir - Not a Flutter project"
-            fi
-          done
-          
-          echo ""
-          echo "========================================="
-          echo "=== APK BUILD SUMMARY ==="
-          echo "========================================="
-          echo "âœ… Successful builds: $BUILD_SUCCESS"
-          if [ -n "$BUILD_FAILED" ]; then
-            echo "âŒ Failed builds: $BUILD_FAILED"
-          fi
-          if [ $SKIPPED_COUNT -gt 0 ]; then
-            echo "âš ï¸ Skipped (no android folder): $SKIPPED_COUNT project(s)"
-          fi
-          echo ""
-          echo "=== APK files generated ==="
-          ls -lh built_apks/ 2>/dev/null || echo "No APKs built"
-
-      - name: Upload APKs
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flutter-apks
-          path: built_apks/
-          retention-days: 7
-          if-no-files-found: warn
-          
-      # ============ CONTINUE WITH ORIGINAL BOT SETUP ============
-          
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -477,16 +148,16 @@ jobs:
           
           # Loop semua folder dan install dari package.json jika ada
           for bot_dir in */; do
-            # Skip Flutter projects
-            if [ -f "${bot_dir}pubspec.yaml" ]; then
-              echo "[SKIP] ${bot_dir} is Flutter project, skipping npm install"
-              continue
-            fi
-            
             if [ -f "${bot_dir}package.json" ]; then
               echo ""
               echo ">>> Found package.json in: ${bot_dir}"
               cd "$bot_dir"
+              
+              # Baca node version dari package.json jika ada
+              NODE_VERSION=$(node -p "try{require('./package.json').engines?.node || ''}catch(e){''}" 2>/dev/null)
+              if [ -n "$NODE_VERSION" ]; then
+                echo "  Required Node.js version: $NODE_VERSION"
+              fi
               
               # Install dependencies dari package.json
               echo "  Installing dependencies from package.json..."
@@ -531,11 +202,6 @@ jobs:
           
           # Simpan requirement tiap bot
           for bot_dir in */; do
-            # Skip Flutter projects
-            if [ -f "${bot_dir}pubspec.yaml" ]; then
-              continue
-            fi
-            
             if [ -f "${bot_dir}package.json" ]; then
               cd "$bot_dir"
               
@@ -630,12 +296,6 @@ jobs:
           
           # Loop semua folder yang ada package.json atau file js
           for bot_dir in */; do
-            # Skip folder yang merupakan Flutter project (pubspec.yaml)
-            if [ -f "${bot_dir}pubspec.yaml" ]; then
-              echo "[SKIP] ${bot_dir} is Flutter project, not running as Node.js bot"
-              continue
-            fi
-            
             # Cek main file dari package.json dulu
             MAIN_FILE=""
             
@@ -749,11 +409,6 @@ jobs:
               
               NEW_PIDS=""
               for bot_dir in */; do
-                # Skip Flutter projects
-                if [ -f "${bot_dir}pubspec.yaml" ]; then
-                  continue
-                fi
-                
                 # Detect main file lagi
                 MAIN_FILE=""
                 if [ -f "${bot_dir}package.json" ]; then
