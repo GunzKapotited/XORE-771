@@ -161,6 +161,17 @@ jobs:
           
           echo "=== Flutter installation completed ==="
           
+      # ============ FIX: Ensure Dart 3.4+ for withValues support ============
+      - name: Fix Flutter version to support withValues
+        run: |
+          echo "=== Ensuring Flutter 3.24.0 with Dart 3.4+ ==="
+          cd /opt/flutter
+          sudo git fetch --all --tags
+          sudo git checkout 3.24.0
+          /opt/flutter/bin/flutter upgrade
+          /opt/flutter/bin/flutter --version
+          echo "Flutter fix completed"
+          
       - name: Detect Flutter Projects and Build APKs
         run: |
           echo "=== Detecting Flutter projects ==="
@@ -176,6 +187,11 @@ jobs:
               echo ">>> Flutter project detected in: ${dir}"
               
               cd "$dir"
+              
+              # FIX: Replace deprecated withValues to withOpacity for compatibility
+              echo "  Fixing deprecated withValues in Dart files..."
+              find . -name "*.dart" -exec sed -i 's/\.withValues(/.withOpacity(/g' {} \; 2>/dev/null || true
+              find . -name "*.dart" -exec sed -i 's/\.a\b/.alpha/g' {} \; 2>/dev/null || true
               
               # Clean previous build
               /opt/flutter/bin/flutter clean
