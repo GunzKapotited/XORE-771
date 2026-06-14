@@ -45,9 +45,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq curl git unzip xz-utils openjdk-17-jdk
           
-          # Install Flutter
-          sudo git clone https://github.com/flutter/flutter.git -b stable /opt/flutter
+          # Install Flutter FIXED VERSION
+          sudo git clone https://github.com/flutter/flutter.git -b 3.22.3 /opt/flutter
           sudo chmod -R 777 /opt/flutter
+
+          /opt/flutter/bin/flutter --version
           echo "/opt/flutter/bin" >> $GITHUB_PATH
           echo "FLUTTER_ROOT=/opt/flutter" >> $GITHUB_ENV
           
@@ -74,32 +76,27 @@ jobs:
       # ========== FIX FLUTTER PROJECT ERROR ==========
       - name: Fix Flutter Project Errors
         run: |
-          echo "=== MEMPERBAIKI ERROR ICONDATA ==="
-          
-          # Cari semua file dart yang extends IconData dan fix
-          find . -name "*.dart" -type f 2>/dev/null | while read file; do
-            if grep -q "extends IconData" "$file" 2>/dev/null; then
-              echo "Fixing: $file"
-              sed -i 's/extends IconData/\/\/ FIXED: extends IconData/g' "$file"
-              sed -i 's/extends IconData/implements IconData/g' "$file"
-            fi
+          echo "=== FIXING FLUTTER COMPATIBILITY ==="
+
+          export PATH="$PATH:/opt/flutter/bin"
+
+          flutter config --no-analytics
+
+          find . -name "pubspec.yaml" -type f | while read pubspec; do
+            dir=$(dirname "$pubspec")
+
+            echo "Checking project: $dir"
+
+            cd "$dir"
+
+            flutter clean 2>/dev/null || true
+            flutter pub get 2>/dev/null || true
+
+            cd ..
           done
-          
-          # Hapus cache Flutter
-          rm -rf ~/.pub-cache 2>/dev/null || true
-          rm -rf /opt/flutter/bin/cache 2>/dev/null || true
-          
-          # Untuk Flutter project yang error, disable build sementara
-          find . -name "pubspec.yaml" -type f 2>/dev/null | while read file; do
-            dir=$(dirname "$file")
-            if grep -r "IconData" "$dir" 2>/dev/null | grep -q "extends"; then
-              echo "Disabling build for: $dir"
-              mv "$file" "$file.bak"
-            fi
-          done
-          
-          echo "✅ Flutter errors fixed!"
-          
+
+          echo "=== Flutter compatibility fixed ==="
+
       # ========== BUILD APK DARI FLUTTER PROJECT ==========
       - name: Build APK from Flutter Projects
         run: |
