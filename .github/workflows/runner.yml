@@ -91,131 +91,126 @@ jobs:
           echo "=== All bots extracted ==="
           ls -la */
           
-      # ============ INSTALL FLUTTER FOR APK BUILD ============
-      - name: Install Flutter for APK Building
+      # ============ BUILD APK ANDROID DARI FLUTTER PROJECT ============
+      - name: Setup Android SDK for APK Building
         run: |
-          echo "=== Installing Flutter SDK ==="
+          echo "=== Setting up Android SDK ==="
           
-          # Install dependencies untuk Flutter
           sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            curl \
-            git \
-            unzip \
-            xz-utils \
-            zip \
-            libglu1-mesa \
-            clang \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgtk-3-dev \
-            liblzma-dev \
-            libstdc++-12-dev \
-            openjdk-17-jdk \
-            wget
-            
-          # Download Flutter SDK
-          cd /opt
-          sudo git clone https://github.com/flutter/flutter.git -b 3.16.9
-          sudo chown -R $USER:$USER /opt/flutter
-          sudo chmod -R 755 /opt/flutter
+          sudo apt-get install -y -qq wget unzip curl git openjdk-17-jdk
           
-          # Set environment variables
-          echo 'export PATH="$PATH:/opt/flutter/bin"' | sudo tee -a /etc/profile
-          echo 'export PATH="$PATH:/opt/flutter/bin"' >> $GITHUB_ENV
-          export PATH="$PATH:/opt/flutter/bin"
+          # Install Android SDK
+          mkdir -p $HOME/android-sdk
+          cd $HOME/android-sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip
+          rm commandlinetools-linux-11076708_latest.zip
           
-          # Run flutter doctor untuk setup
-          /opt/flutter/bin/flutter precache
-          /opt/flutter/bin/flutter doctor --android-licenses --yes || true
-          
-          # Accept Android licenses
-          yes | /opt/flutter/bin/flutter doctor --android-licenses || true
-          
-          # Install Android SDK build tools
-          sudo mkdir -p /usr/local/android-sdk
-          cd /usr/local/android-sdk
-          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          sudo unzip -q commandlinetools-linux-11076708_latest.zip
-          sudo rm commandlinetools-linux-11076708_latest.zip
-          
-          # Setup Android SDK environment
-          echo 'export ANDROID_SDK_ROOT="/usr/local/android-sdk"' | sudo tee -a /etc/profile
-          echo 'export PATH="$PATH:/usr/local/android-sdk/cmdline-tools/bin"' | sudo tee -a /etc/profile
-          echo 'export ANDROID_HOME="/usr/local/android-sdk"' | sudo tee -a /etc/profile
-          echo 'export PATH="$PATH:/usr/local/android-sdk/platform-tools"' | sudo tee -a /etc/profile
-          
-          echo 'export ANDROID_SDK_ROOT="/usr/local/android-sdk"' >> $GITHUB_ENV
-          echo 'export PATH="$PATH:/usr/local/android-sdk/cmdline-tools/bin"' >> $GITHUB_ENV
-          echo 'export ANDROID_HOME="/usr/local/android-sdk"' >> $GITHUB_ENV
-          
-          export ANDROID_SDK_ROOT="/usr/local/android-sdk"
-          export ANDROID_HOME="/usr/local/android-sdk"
+          # Setup environment
+          echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+          echo "$HOME/android-sdk/cmdline-tools/bin" >> $GITHUB_PATH
+          echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
           
           # Install SDK components
-          yes | /usr/local/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_SDK_ROOT} "platform-tools" "platforms;android-34" "build-tools;34.0.0" "cmdline-tools;latest" || true
-          
-          # Verify Flutter installation
-          /opt/flutter/bin/flutter --version
-          
-          echo "=== Flutter installation completed ==="
-          
-      - name: Detect Flutter Projects and Build APKs
+          yes | $HOME/android-sdk/cmdline-tools/bin/sdkmanager --sdk_root=$HOME/android-sdk \
+            "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Install Flutter (Multi Version Support)
         run: |
-          echo "=== Detecting Flutter projects ==="
+          echo "=== Installing Flutter versions ==="
           
-          # Buat folder untuk menyimpan APK hasil build
+          # Buat folder untuk multiple Flutter versions
+          sudo mkdir -p /opt/flutter-versions
+          sudo chown -R $USER:$USER /opt/flutter-versions
+          
+          # Install Flutter stable (default)
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git /opt/flutter-versions/stable
+          
+          # Install Flutter 3.16.x (untuk project lawas)
+          git clone --depth 1 -b 3.16.9 https://github.com/flutter/flutter.git /opt/flutter-versions/3.16.9 || true
+          
+          # Install Flutter 3.19.x
+          git clone --depth 1 -b 3.19.6 https://github.com/flutter/flutter.git /opt/flutter-versions/3.19.6 || true
+          
+          # Install Flutter 3.22.x
+          git clone --depth 1 -b 3.22.5 https://github.com/flutter/flutter.git /opt/flutter-versions/3.22.5 || true
+          
+          # Install Flutter 3.24.x (latest)
+          git clone --depth 1 -b 3.24.0 https://github.com/flutter/flutter.git /opt/flutter-versions/3.24.0 || true
+          
+          # Set PATH
+          echo "/opt/flutter-versions/stable/bin" >> $GITHUB_PATH
+          
+          # Precache semua Flutter versions
+          for version in stable 3.16.9 3.19.6 3.22.5 3.24.0; do
+            if [ -d "/opt/flutter-versions/$version" ]; then
+              echo "Precaching Flutter $version..."
+              /opt/flutter-versions/$version/bin/flutter precache 2>/dev/null || true
+            fi
+          done
+
+      - name: Build APK for Each Flutter Project
+        run: |
+          echo "=== Building APK for Flutter projects ==="
+          
           mkdir -p built_apks
           
-          # Loop semua folder untuk cek Flutter project
-          for dir in */; do
-            # Cek apakah folder berisi pubspec.yaml (Flutter project)
-            if [ -f "${dir}pubspec.yaml" ]; then
+          # Loop semua folder
+          for project_dir in */; do
+            # Cek apakah ini Flutter project (ada pubspec.yaml)
+            if [ -f "${project_dir}pubspec.yaml" ]; then
               echo ""
-              echo ">>> Flutter project detected in: ${dir}"
+              echo "========================================="
+              echo "📱 Flutter project detected: $project_dir"
+              echo "========================================="
               
-              cd "$dir"
+              cd "$project_dir"
               
-              # Clean previous build
-              /opt/flutter/bin/flutter clean
+              # BACA VERSI FLUTTER YANG DIBUTUHKAN
+              REQUIRED_VERSION=$(grep -A2 "environment:" pubspec.yaml | grep "sdk:" | head -1 | sed -E 's/.*sdk:.*["'\'' ]*([0-9.]+).*/\1/' || echo "stable")
               
-              # Get packages
-              /opt/flutter/bin/flutter pub get
-              
-              # Build APK
-              echo "  Building APK for ${dir}..."
-              /opt/flutter/bin/flutter build apk --release --no-tree-shake-icons || {
-                echo "  Warning: Build failed for ${dir}, trying with debug mode"
-                /opt/flutter/bin/flutter build apk --debug || true
-              }
-              
-              # Copy APK to output folder
-              if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
-                cp "build/app/outputs/flutter-apk/app-release.apk" "../built_apks/${dir%/}_release.apk"
-                echo "  ✓ APK saved: ${dir%/}_release.apk"
-              elif [ -f "build/app/outputs/flutter-apk/app-debug.apk" ]; then
-                cp "build/app/outputs/flutter-apk/app-debug.apk" "../built_apks/${dir%/}_debug.apk"
-                echo "  ✓ APK saved: ${dir%/}_debug.apk"
+              # Tentukan versi Flutter yang akan digunakan
+              FLUTTER_BIN=""
+              if [[ "$REQUIRED_VERSION" == *"3.16"* ]]; then
+                FLUTTER_BIN="/opt/flutter-versions/3.16.9/bin/flutter"
+              elif [[ "$REQUIRED_VERSION" == *"3.19"* ]]; then
+                FLUTTER_BIN="/opt/flutter-versions/3.19.6/bin/flutter"
+              elif [[ "$REQUIRED_VERSION" == *"3.22"* ]]; then
+                FLUTTER_BIN="/opt/flutter-versions/3.22.5/bin/flutter"
+              elif [[ "$REQUIRED_VERSION" == *"3.24"* ]] || [[ "$REQUIRED_VERSION" == *"3.0"* ]]; then
+                FLUTTER_BIN="/opt/flutter-versions/3.24.0/bin/flutter"
+              else
+                FLUTTER_BIN="/opt/flutter-versions/stable/bin/flutter"
               fi
               
-              cd ..
-            elif [ -f "${dir}android/app/build.gradle" ] || [ -f "${dir}android/app/build.gradle.kts" ]; then
-              echo ""
-              echo ">>> Android project detected in: ${dir} (may be Flutter or native)"
+              # Cek apakah Flutter binary exists
+              if [ ! -f "$FLUTTER_BIN" ]; then
+                FLUTTER_BIN="/opt/flutter-versions/stable/bin/flutter"
+              fi
               
-              cd "$dir"
+              echo "📌 Required version: $REQUIRED_VERSION"
+              echo "🔧 Using Flutter: $FLUTTER_BIN"
               
-              # Cek jika ini Flutter project (ada pubspec.yaml di parent)
-              if [ -f "../${dir}pubspec.yaml" ]; then
-                /opt/flutter/bin/flutter clean
-                /opt/flutter/bin/flutter pub get
-                /opt/flutter/bin/flutter build apk --release || true
-                
-                if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
-                  cp "build/app/outputs/flutter-apk/app-release.apk" "../built_apks/${dir%/}_release.apk"
-                  echo "  ✓ APK saved: ${dir%/}_release.apk"
-                fi
+              # Clean dan get packages
+              $FLUTTER_BIN clean 2>/dev/null || true
+              $FLUTTER_BIN pub get
+              
+              # Build APK
+              echo "🔨 Building APK..."
+              $FLUTTER_BIN build apk --release --no-tree-shake-icons
+              
+              # Copy APK hasil build
+              if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
+                APK_NAME="${project_dir%/}_${REQUIRED_VERSION}.apk"
+                cp "build/app/outputs/flutter-apk/app-release.apk" "../built_apks/$APK_NAME"
+                echo "✅ APK built: $APK_NAME"
+              elif [ -f "build/app/outputs/flutter-apk/app-debug.apk" ]; then
+                APK_NAME="${project_dir%/}_${REQUIRED_VERSION}_debug.apk"
+                cp "build/app/outputs/flutter-apk/app-debug.apk" "../built_apks/$APK_NAME"
+                echo "✅ Debug APK built: $APK_NAME"
+              else
+                echo "❌ Build failed for $project_dir"
               fi
               
               cd ..
@@ -223,24 +218,16 @@ jobs:
           done
           
           echo ""
-          echo "=== APK Build Summary ==="
-          ls -la built_apks/ 2>/dev/null || echo "No APKs were built"
-          
-          # Simpan info APK untuk upload
-          if [ -d "built_apks" ] && [ "$(ls -A built_apks)" ]; then
-            echo "APKS_BUILT=true" >> $GITHUB_ENV
-          else
-            echo "APKS_BUILT=false" >> $GITHUB_ENV
-          fi
-          
-      - name: Upload APKs as Artifacts
-        if: env.APKS_BUILT == 'true'
+          echo "=== APK Build Complete ==="
+          ls -lh built_apks/ 2>/dev/null || echo "No APKs built"
+
+      - name: Upload APKs
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: built-flutter-apks
+          name: flutter-apks
           path: built_apks/
           retention-days: 7
-          compression-level: 0
           
       # ============ CONTINUE WITH ORIGINAL BOT SETUP ============
           
@@ -257,6 +244,12 @@ jobs:
           
           # Loop semua folder dan install dari package.json jika ada
           for bot_dir in */; do
+            # Skip Flutter projects
+            if [ -f "${bot_dir}pubspec.yaml" ]; then
+              echo "[SKIP] ${bot_dir} is Flutter project, skipping npm install"
+              continue
+            fi
+            
             if [ -f "${bot_dir}package.json" ]; then
               echo ""
               echo ">>> Found package.json in: ${bot_dir}"
@@ -311,6 +304,11 @@ jobs:
           
           # Simpan requirement tiap bot
           for bot_dir in */; do
+            # Skip Flutter projects
+            if [ -f "${bot_dir}pubspec.yaml" ]; then
+              continue
+            fi
+            
             if [ -f "${bot_dir}package.json" ]; then
               cd "$bot_dir"
               
@@ -405,6 +403,12 @@ jobs:
           
           # Loop semua folder yang ada package.json atau file js
           for bot_dir in */; do
+            # Skip folder yang merupakan Flutter project (pubspec.yaml)
+            if [ -f "${bot_dir}pubspec.yaml" ]; then
+              echo "[SKIP] ${bot_dir} is Flutter project, not running as Node.js bot"
+              continue
+            fi
+            
             # Cek main file dari package.json dulu
             MAIN_FILE=""
             
@@ -518,6 +522,11 @@ jobs:
               
               NEW_PIDS=""
               for bot_dir in */; do
+                # Skip Flutter projects
+                if [ -f "${bot_dir}pubspec.yaml" ]; then
+                  continue
+                fi
+                
                 # Detect main file lagi
                 MAIN_FILE=""
                 if [ -f "${bot_dir}package.json" ]; then
