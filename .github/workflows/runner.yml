@@ -117,7 +117,7 @@ jobs:
             
           # Download Flutter SDK
           cd /opt
-          sudo git clone https://github.com/flutter/flutter.git -b 3.22.3
+          sudo git clone https://github.com/flutter/flutter.git -b 3.24.0
           sudo chown -R $USER:$USER /opt/flutter
           sudo chmod -R 755 /opt/flutter
           
