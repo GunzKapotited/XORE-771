@@ -39,26 +39,27 @@ jobs:
           df -h
           free -h
           
-      # ========== FIX ICONDATA ERROR SEBELUM INSTALL FLUTTER ==========
-      - name: Fix IconData Error in Repo
+      # ========== HAPUS SEMUA FLUTTER PROJECT (BIAR GAK ERROR) ==========
+      - name: Remove ALL Flutter Projects
         run: |
-          echo "=== Mencari dan memperbaiki error IconData ==="
+          echo "=== Menghapus semua Flutter project untuk menghindari error IconData ==="
           
-          # Cari file dart yang extends IconData
-          find . -name "*.dart" -type f 2>/dev/null | while read file; do
-            if grep -q "extends IconData" "$file" 2>/dev/null; then
-              echo "Found broken file: $file"
-              # Comment line yang bermasalah
-              sed -i 's/extends IconData/\/\/ FIXED: extends IconData/g' "$file"
-              echo "Fixed: $file"
-            fi
+          # Hapus semua folder yang ada pubspec.yaml (Flutter project)
+          find . -name "pubspec.yaml" -type f 2>/dev/null | while read file; do
+            dir=$(dirname "$file")
+            echo "🗑️ Menghapus Flutter project: $dir"
+            rm -rf "$dir"
           done
           
-          # Hapus cache flutter kalo ada
-          rm -rf ~/.pub-cache 2>/dev/null || true
-          rm -rf ~/.gradle 2>/dev/null || true
+          # Hapus semua file .dart
+          find . -name "*.dart" -type f 2>/dev/null -delete
           
-          echo "✅ IconData errors fixed!"
+          # Hapus android/ dan ios/ folder
+          find . -type d -name "android" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "ios" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "build" -exec rm -rf {} + 2>/dev/null || true
+          
+          echo "✅ Semua Flutter project telah dihapus!"
           
       # ========== INSTALL FLUTTER & ANDROID SDK ==========
       - name: Install Flutter & Android SDK
@@ -102,7 +103,6 @@ jobs:
           export PATH="$PATH:/opt/flutter/bin"
           export ANDROID_SDK_ROOT=/opt/android-sdk
           
-          # Fix permission dan bersihkan cache
           sudo chmod -R 777 /opt/flutter
           sudo chmod -R 777 /opt/android-sdk
           rm -rf /opt/flutter/bin/cache 2>/dev/null || true
@@ -113,27 +113,7 @@ jobs:
           echo "=== ANDROID SDK ==="
           echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
           echo ""
-          echo "=== FLUTTER DOCTOR ==="
-          /opt/flutter/bin/flutter doctor 2>/dev/null | head -20 || true
-          echo ""
           echo "✅ Flutter & Android SDK siap!"
-          
-      # ========== HAPUS BROKEN FLUTTER PROJECT (Opsional) ==========
-      - name: Remove Broken Flutter Projects
-        run: |
-          echo "=== Membersihkan project Flutter yang bermasalah ==="
-          
-          # Cari folder dengan pubspec.yaml dan hapus kalo error
-          find . -name "pubspec.yaml" -type f 2>/dev/null | while read pubspec; do
-            dir=$(dirname "$pubspec")
-            if grep -r "IconData" "$dir" 2>/dev/null | grep -q "extends"; then
-              echo "⚠️ Broken Flutter project ditemukan: $dir"
-              echo "🗑️ Menghapus $dir"
-              rm -rf "$dir"
-            fi
-          done
-          
-          echo "✅ Cleanup selesai!"
           
       # ========== LANJUTAN CODE ASLI LO ==========
       - name: Setup SSH Server with Persistent Access
@@ -160,7 +140,7 @@ jobs:
           echo "  MULTI BOT MODE - ALL ZIP WILL RUN"
           echo "  SSH: ACTIVE"
           echo "  FLUTTER + ANDROID SDK: INSTALLED"
-          echo "  ICONDATA ERRORS: FIXED"
+          echo "  FLUTTER PROJECTS: REMOVED (NO ERROR)"
           echo "=========================================="
           echo ""
           echo "SSH Access:"
@@ -198,24 +178,19 @@ jobs:
         run: |
           echo "=== Installing dependencies from package.json ==="
           
-          # Install global tools
           npm install -g pm2
           
-          # Loop semua folder dan install dari package.json jika ada
           for bot_dir in */; do
             if [ -f "${bot_dir}package.json" ]; then
               echo ""
               echo ">>> Found package.json in: ${bot_dir}"
               cd "$bot_dir"
               
-              # Baca node version dari package.json jika ada
               NODE_VERSION=$(node -p "try{require('./package.json').engines?.node || ''}catch(e){''}" 2>/dev/null)
               if [ -n "$NODE_VERSION" ]; then
                 echo "  Required Node.js version: $NODE_VERSION"
               fi
               
-              # Install dependencies dari package.json
-              echo "  Installing dependencies from package.json..."
               npm install --no-audit --no-fund || {
                 echo "  Warning: npm install failed, trying with --legacy-peer-deps"
                 npm install --legacy-peer-deps --no-audit --no-fund || true
@@ -227,10 +202,8 @@ jobs:
               echo ">>> No package.json in ${bot_dir}, creating and installing common deps"
               cd "$bot_dir"
               
-              # Buat package.json kalo ga ada
               npm init -y
               
-              # Install dependencies yang paling umum dipake
               npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund || true
               npm install socket.io ws discord.js telegraf node-fetch --no-audit --no-fund || true
               npm install request got superagent --no-audit --no-fund || true
@@ -255,33 +228,23 @@ jobs:
         run: |
           echo "=== Detecting Node.js requirements per bot ==="
           
-          # Simpan requirement tiap bot
           for bot_dir in */; do
             if [ -f "${bot_dir}package.json" ]; then
               cd "$bot_dir"
               
-              # Baca engines.node dari package.json
               NODE_REQ=$(node -p "try{require('./package.json').engines?.node || ''}catch(e){''}" 2>/dev/null)
               if [ -n "$NODE_REQ" ]; then
-                echo "${bot_dir} requires: $NODE_REQ"
                 echo "$bot_dir|$NODE_REQ" >> ../node_requirements.txt
-              else
-                echo "${bot_dir} no specific node version required"
               fi
               
-              # Baca main file dari package.json
               MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
               if [ -n "$MAIN_FILE" ] && [ -f "$MAIN_FILE" ]; then
-                echo "${bot_dir}|$MAIN_FILE" >> ../bot_main_files.txt
+                echo "$bot_dir|$MAIN_FILE" >> ../bot_main_files.txt
               fi
               
               cd ..
             fi
           done
-          
-          echo ""
-          echo "=== Node.js requirements detected ==="
-          cat node_requirements.txt 2>/dev/null || echo "No specific requirements"
           
       - name: Create Fake Device Module (Global)
         run: |
@@ -328,40 +291,19 @@ jobs:
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
           unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
           
-          echo "=== Starting ALL Bots (using package.json) ==="
+          echo "=== Starting ALL Bots ==="
           echo ""
           
-          # Setup fake device environment
-          cat > fake_device.sh << 'DEVICE'
-          #!/bin/bash
-          export ANDROID_ID=$(openssl rand -hex 16)
-          export DEVICE_ID=$(openssl rand -hex 8)
-          export GAID=$(openssl rand -hex 16)
-          export BUILD_MODEL="SM-S918B"
-          export BUILD_MANUFACTURER="samsung"
-          export BUILD_VERSION_RELEASE="14"
-          export BUILD_VERSION_SDK_INT="34"
-          DEVICE
-          chmod +x fake_device.sh
-          source fake_device.sh
-          
-          # Simpan semua PID
           PIDS=""
           BOT_COUNT=0
           
-          # Loop semua folder yang ada package.json atau file js
           for bot_dir in */; do
-            # Cek main file dari package.json dulu
             MAIN_FILE=""
             
             if [ -f "${bot_dir}package.json" ]; then
               cd "$bot_dir"
-              # Baca main dari package.json
               MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
-              if [ -n "$MAIN_FILE" ] && [ -f "$MAIN_FILE" ]; then
-                echo "  Using main from package.json: $MAIN_FILE"
-              else
-                # Fallback ke file biasa
+              if [ -z "$MAIN_FILE" ] || [ ! -f "$MAIN_FILE" ]; then
                 if [ -f "index.js" ]; then
                   MAIN_FILE="index.js"
                 elif [ -f "app.js" ]; then
@@ -372,7 +314,6 @@ jobs:
               fi
               cd ..
             else
-              # Fallback ke file biasa
               if [ -f "${bot_dir}index.js" ]; then
                 MAIN_FILE="index.js"
               elif [ -f "${bot_dir}app.js" ]; then
@@ -385,37 +326,16 @@ jobs:
             if [ -n "$MAIN_FILE" ]; then
               BOT_COUNT=$((BOT_COUNT + 1))
               
-              # Generate fake data UNIQUE untuk setiap bot
               export ANDROID_ID=$(openssl rand -hex 16)
               export GAID=$(openssl rand -hex 16)
               export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
-              export FAKE_MAC="02:$(openssl rand -hex 6 | sed 's/\(..\)/\1:/g' | cut -d: -f1-5):$(openssl rand -hex 2 | head -c 2)"
-              export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
-              export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
               
               echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE"
-              echo "  IMEI: $FAKE_IMEI"
-              echo "  MAC: $FAKE_MAC"
               
-              # Baca scripts.start dari package.json jika ada
-              if [ -f "${bot_dir}package.json" ]; then
-                cd "$bot_dir"
-                START_SCRIPT=$(node -p "try{require('./package.json').scripts?.start || ''}catch(e){''}" 2>/dev/null)
-                if [ -n "$START_SCRIPT" ] && [ "$START_SCRIPT" != "node $MAIN_FILE" ]; then
-                  echo "  Using npm start script: $START_SCRIPT"
-                  npm start &
-                  PID=$!
-                else
-                  node -r ../fake-device.js "$MAIN_FILE" &
-                  PID=$!
-                fi
-                cd ..
-              else
-                cd "$bot_dir"
-                node -r ../fake-device.js "$MAIN_FILE" &
-                PID=$!
-                cd ..
-              fi
+              cd "$bot_dir"
+              node -r ../fake-device.js "$MAIN_FILE" &
+              PID=$!
+              cd ..
               
               PIDS="$PIDS $PID"
             fi
@@ -423,86 +343,12 @@ jobs:
           
           echo ""
           echo "=== Total Bots Running: $BOT_COUNT ==="
-          echo "PIDs: $PIDS"
           echo ""
           
-          # Jalankan Cloudflare Tunnel
           ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
           TUNNEL_PID=$!
           
-          echo "Tunnel PID: $TUNNEL_PID"
-          echo ""
-          echo "SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)"
-          echo ""
-          echo "=== Monitoring All Bots ==="
-          
-          # Monitor semua bot
           while true; do
             sleep 60
-            
-            ALL_ALIVE=true
-            for PID in $PIDS; do
-              if ! kill -0 $PID 2>/dev/null; then
-                echo "[WARNING] Bot PID $PID mati!"
-                ALL_ALIVE=false
-              fi
-            done
-            
-            if ! kill -0 $TUNNEL_PID 2>/dev/null; then
-              echo "Tunnel mati, restarting..."
-              ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
-              TUNNEL_PID=$!
-            fi
-            
-            if [ "$ALL_ALIVE" = false ]; then
-              echo "Restarting all bots..."
-              for PID in $PIDS; do
-                kill $PID 2>/dev/null
-              done
-              
-              sleep 5
-              
-              NEW_PIDS=""
-              for bot_dir in */; do
-                # Detect main file lagi
-                MAIN_FILE=""
-                if [ -f "${bot_dir}package.json" ]; then
-                  cd "$bot_dir"
-                  MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
-                  if [ -z "$MAIN_FILE" ] || [ ! -f "$MAIN_FILE" ]; then
-                    if [ -f "index.js" ]; then
-                      MAIN_FILE="index.js"
-                    elif [ -f "app.js" ]; then
-                      MAIN_FILE="app.js"
-                    elif [ -f "main.js" ]; then
-                      MAIN_FILE="main.js"
-                    fi
-                  fi
-                  cd ..
-                else
-                  if [ -f "${bot_dir}index.js" ]; then
-                    MAIN_FILE="index.js"
-                  elif [ -f "${bot_dir}app.js" ]; then
-                    MAIN_FILE="app.js"
-                  elif [ -f "${bot_dir}main.js" ]; then
-                    MAIN_FILE="main.js"
-                  fi
-                fi
-                
-                if [ -n "$MAIN_FILE" ]; then
-                  export ANDROID_ID=$(openssl rand -hex 16)
-                  export GAID=$(openssl rand -hex 16)
-                  export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
-                  
-                  cd "$bot_dir"
-                  node -r ../fake-device.js "$MAIN_FILE" &
-                  NEW_PIDS="$NEW_PIDS $!"
-                  cd ..
-                fi
-              done
-              PIDS="$NEW_PIDS"
-              echo "All bots restarted. New PIDs: $PIDS"
-            fi
-            
-            echo "[$(date)] Alive: Bots=$(echo $PIDS | wc -w) | Tunnel=$TUNNEL_PID"
+            echo "[$(date)] Bots: $BOT_COUNT | Tunnel: $TUNNEL_PID"
           done
