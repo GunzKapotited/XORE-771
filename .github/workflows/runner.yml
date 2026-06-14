@@ -39,80 +39,55 @@ jobs:
           df -h
           free -h
           
-      # ========== PERBAIKAN FLUTTER ==========
-      - name: Setup Flutter
+      # ========== INSTALL FLUTTER & ANDROID SDK ==========
+      - name: Install Flutter & Android SDK
         run: |
-          # Install prerequisite
+          # Install dependencies
           sudo apt-get update -qq
-          sudo apt-get install -y -qq curl xz-utils
+          sudo apt-get install -y -qq curl git unzip xz-utils openjdk-17-jdk
           
-          # Download dengan retry dan verifikasi
+          # Install Flutter
           cd /opt
-          sudo curl -L -o flutter.tar.xz --retry 5 --retry-delay 2 \
-            https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.22.4-stable.tar.xz
-          
-          # Verifikasi file
-          if [ ! -s flutter.tar.xz ]; then
-            echo "Download failed - file empty"
-            exit 1
-          fi
-          
-          # Extract
-          sudo tar -xf flutter.tar.xz
-          sudo rm flutter.tar.xz
+          sudo git clone https://github.com/flutter/flutter.git -b stable
           sudo chmod -R 755 /opt/flutter
-          
-          # Add to PATH
           echo "/opt/flutter/bin" >> $GITHUB_PATH
           echo "FLUTTER_ROOT=/opt/flutter" >> $GITHUB_ENV
           
-          # Test flutter
-          export PATH="$PATH:/opt/flutter/bin"
-          flutter --version
-          
-      - name: Check Flutter Doctor
-        run: |
-          export PATH="$PATH:/opt/flutter/bin"
-          flutter doctor || true
-          
-      # ========== PERBAIKAN ANDROID SDK ==========
-      - name: Setup Android SDK
-        run: |
-          sudo apt-get install -y -qq openjdk-17-jdk wget unzip
-          
+          # Install Android SDK
           cd /opt
-          # Download dengan retry
-          sudo wget --tries=5 --timeout=30 -q \
-            https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          
-          if [ ! -f commandlinetools-linux-*.zip ]; then
-            echo "Download failed"
-            exit 1
-          fi
-          
+          sudo wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           sudo unzip -q commandlinetools-linux-*.zip
-          sudo rm commandlinetools-linux-*.zip
           sudo mkdir -p android-sdk/cmdline-tools
           sudo mv cmdline-tools android-sdk/cmdline-tools/latest
+          sudo rm -f commandlinetools-linux-*.zip
           
           echo "ANDROID_SDK_ROOT=/opt/android-sdk" >> $GITHUB_ENV
           echo "/opt/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "/opt/android-sdk/platform-tools" >> $GITHUB_PATH
           
-      - name: Install Android SDK Components
+      - name: Setup Android SDK Licenses
         run: |
           export ANDROID_SDK_ROOT=/opt/android-sdk
           export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
           
-          # Accept licenses
           yes | sdkmanager --licenses 2>/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null 2>&1 || true
           
-          # Install components (tanpa error jika gagal)
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" || true
+      - name: Verify Flutter & Android SDK
+        run: |
+          export PATH="$PATH:/opt/flutter/bin"
+          export ANDROID_SDK_ROOT=/opt/android-sdk
           
-          echo "Android SDK setup complete"
+          echo "=== FLUTTER VERSION ==="
+          flutter --version
+          echo ""
+          echo "=== ANDROID SDK ==="
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+          echo ""
+          echo "=== FLUTTER DOCTOR ==="
+          flutter doctor || true
           
-      # ========== LANJUTAN CODE ASLI ANDA ==========
+      # ========== LANJUTAN CODE ASLI LO ==========
       - name: Setup SSH Server with Persistent Access
         run: |
           sudo apt-get update -qq
@@ -136,8 +111,7 @@ jobs:
           echo "=========================================="
           echo "  MULTI BOT MODE - ALL ZIP WILL RUN"
           echo "  SSH: ACTIVE"
-          echo "  FLUTTER: READY"
-          echo "  ANDROID SDK: READY"
+          echo "  FLUTTER + ANDROID SDK: INSTALLED"
           echo "=========================================="
           echo ""
           echo "SSH Access:"
