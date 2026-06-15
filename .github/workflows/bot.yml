@@ -22,7 +22,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v3
         continue-on-error: true
         with:
-          workflow: bot.yml
+          workflow: bot-247.yml
           branch: main
           name: bot-saved-data
           path: ./restored-data
@@ -115,7 +115,6 @@ jobs:
           sudo chmod -R 777 /opt/flutter-versions
           
           # Daftar semua versi Flutter yang akan diinstall
-          # Dari versi tertua ke terbaru
           FLUTTER_VERSIONS=(
             "1.0.0"
             "1.2.1"
@@ -142,16 +141,11 @@ jobs:
             "3.22.0"
           )
           
-          # Install Flutter SDK Manager (fvm) untuk manajemen versi
-          /opt/flutter/bin/flutter pub global activate fvm
-          export PATH="$PATH:/root/.pub-cache/bin"
-          
           # Install setiap versi Flutter
           for VERSION in "${FLUTTER_VERSIONS[@]}"; do
             echo ""
             echo ">>> Installing Flutter version: $VERSION"
             
-            # Clone Flutter dengan versi spesifik
             cd /opt/flutter-versions
             sudo git clone --depth 1 --branch $VERSION https://github.com/flutter/flutter.git flutter-$VERSION 2>/dev/null || {
               echo "⚠️ Version $VERSION not found via branch, trying tag..."
@@ -164,25 +158,13 @@ jobs:
             
             if [ -d "/opt/flutter-versions/flutter-$VERSION" ]; then
               sudo chmod -R 777 /opt/flutter-versions/flutter-$VERSION
-              
-              # Install dependencies untuk versi ini
               cd /opt/flutter-versions/flutter-$VERSION
               ./bin/flutter precache 2>/dev/null || true
               ./bin/flutter doctor 2>/dev/null || true
-              
               echo "✅ Flutter $VERSION installed successfully"
-              
-              # Simpan path ke versi
               echo "flutter-$VERSION=/opt/flutter-versions/flutter-$VERSION/bin/flutter" >> /opt/flutter-versions/versions.txt
             else
               echo "❌ Failed to install Flutter $VERSION"
-            fi
-          done
-          
-          # Setup FVM dengan semua versi
-          for VERSION in "${FLUTTER_VERSIONS[@]}"; do
-            if [ -d "/opt/flutter-versions/flutter-$VERSION" ]; then
-              /opt/flutter/bin/flutter pub global run fvm install $VERSION --skip-setup 2>/dev/null || true
             fi
           done
           
@@ -191,64 +173,12 @@ jobs:
           echo "Installed versions:"
           ls -la /opt/flutter-versions/ | grep flutter-
           
-          # Create master version switcher
-          cat > /opt/flutter-versions/switch-flutter.sh << 'SWITCHER'
-          #!/bin/bash
-          VERSION=$1
-          if [ -z "$VERSION" ]; then
-            echo "Available versions:"
-            ls /opt/flutter-versions/ | grep flutter- | sed 's/flutter-//'
-            exit 1
-          fi
-          
-          if [ -d "/opt/flutter-versions/flutter-$VERSION" ]; then
-            echo "Switching to Flutter $VERSION"
-            echo "FLUTTER_VERSION=$VERSION"
-            echo "FLUTTER_ROOT=/opt/flutter-versions/flutter-$VERSION"
-            echo "PATH=/opt/flutter-versions/flutter-$VERSION/bin:\$PATH"
-            export FLUTTER_VERSION=$VERSION
-            export FLUTTER_ROOT=/opt/flutter-versions/flutter-$VERSION
-            export PATH=/opt/flutter-versions/flutter-$VERSION/bin:$PATH
-            echo "✅ Now using Flutter $VERSION"
-            flutter --version
-          else
-            echo "❌ Flutter $VERSION not found"
-            exit 1
-          fi
-          SWITCHER
-          
-          sudo chmod +x /opt/flutter-versions/switch-flutter.sh
-          
       # ========== AUTO DETECT FLUTTER VERSION PER PROJECT ==========
       - name: Auto Detect Flutter Version per Project
         run: |
           echo "=== AUTO DETECTING FLUTTER VERSION PER PROJECT ==="
           
-          # Detect Flutter version from pubspec.yaml or .fvm
-          detect_flutter_version() {
-            local project_dir="$1"
-            local version=""
-            
-            # Check .fvm/flutter_sdk
-            if [ -f "${project_dir}.fvm/flutter_sdk" ]; then
-              version=$(cat "${project_dir}.fvm/flutter_sdk" 2>/dev/null | grep -oP 'version: \K[0-9.]+' || true)
-            fi
-            
-            # Check pubspec.yaml for environment sdk
-            if [ -z "$version" ] && [ -f "${project_dir}pubspec.yaml" ]; then
-              version=$(grep -oP 'sdk: ">=[0-9.]*"' "${project_dir}pubspec.yaml" 2>/dev/null | grep -oP '[0-9.]+' | head -1 || true)
-            fi
-            
-            # Check for flutter version in pubspec.lock
-            if [ -z "$version" ] && [ -f "${project_dir}pubspec.lock" ]; then
-              version=$(grep -oP 'flutter: \K[0-9.]+' "${project_dir}pubspec.lock" 2>/dev/null | head -1 || true)
-            fi
-            
-            echo "$version"
-          }
-          
-          # Create project-specific flutter version switcher
-          cat > switch_project_flutter.sh << 'PROJECTSWITCHER'
+          cat > switch_project_flutter.sh << 'EOFF'
           #!/bin/bash
           PROJECT_DIR=$1
           VERSION=$2
@@ -262,29 +192,21 @@ jobs:
           
           if [ -f "$FLUTTER_BIN" ]; then
             cd "$PROJECT_DIR"
-            
-            # Create symlink for this project
             ln -sf "$FLUTTER_BIN" ./flutter 2>/dev/null || true
-            
-            # Create .flutter_version file
             echo "$VERSION" > .flutter_version
-            
-            # Create activation script
             cat > activate_flutter.sh << ACTIVATE
-            #!/bin/bash
-            export FLUTTER_VERSION=$VERSION
-            export FLUTTER_ROOT=/opt/flutter-versions/flutter-$VERSION
-            export PATH=/opt/flutter-versions/flutter-$VERSION/bin:\$PATH
-            ACTIVATE
-            
+          #!/bin/bash
+          export FLUTTER_VERSION=$VERSION
+          export FLUTTER_ROOT=/opt/flutter-versions/flutter-$VERSION
+          export PATH=/opt/flutter-versions/flutter-$VERSION/bin:\$PATH
+          ACTIVATE
             chmod +x activate_flutter.sh
             cd ..
-            
             echo "✅ Project $PROJECT_DIR configured with Flutter $VERSION"
           else
-            echo "⚠️ Flutter $VERSION not found for $PROJECT_DIR, using stable"
+            echo "⚠️ Flutter $VERSION not found for $PROJECT_DIR"
           fi
-          PROJECTSWITCHER
+          EOFF
           
           chmod +x switch_project_flutter.sh
           
@@ -294,10 +216,17 @@ jobs:
           for project_dir in */; do
             if [ -f "${project_dir}pubspec.yaml" ]; then
               echo "Checking: $project_dir"
-              detected_version=$(detect_flutter_version "$project_dir")
+              detected_version=""
+              
+              if [ -f "${project_dir}.fvm/flutter_sdk" ]; then
+                detected_version=$(cat "${project_dir}.fvm/flutter_sdk" 2>/dev/null | grep -oP 'version: \K[0-9.]+' || true)
+              fi
+              
+              if [ -z "$detected_version" ] && [ -f "${project_dir}pubspec.yaml" ]; then
+                detected_version=$(grep -oP 'sdk: ">=[0-9.]*"' "${project_dir}pubspec.yaml" 2>/dev/null | grep -oP '[0-9.]+' | head -1 || true)
+              fi
               
               if [ -n "$detected_version" ]; then
-                # Find closest matching installed version
                 MATCHED_VERSION=""
                 for VERSION in "3.22.0" "3.19.6" "3.16.9" "3.13.9" "3.10.6" "3.7.12" "3.3.10" "3.0.5" "2.10.5" "2.8.1" "2.5.3" "2.2.3" "2.0.6" "1.22.6" "1.20.4" "1.17.5" "1.12.13" "1.10.15" "1.9.1" "1.7.8" "1.5.4" "1.2.1" "1.0.0"; do
                   if [[ "$detected_version" == "$VERSION"* ]] || [[ "$detected_version" > "$VERSION" ]]; then
@@ -312,7 +241,7 @@ jobs:
                   ./switch_project_flutter.sh "$project_dir" "$MATCHED_VERSION"
                 else
                   echo "$project_dir|stable" >> flutter_versions.txt
-                  echo "  → Using Flutter: stable (detected: $detected_version)"
+                  echo "  → Using Flutter: stable"
                 fi
               else
                 echo "  → No specific version detected, using stable"
@@ -331,43 +260,31 @@ jobs:
           export ANDROID_SDK_ROOT=/opt/android-sdk
           export PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
           
-          # Setup licenses
           yes | sdkmanager --licenses 2>/dev/null || true
           
-          # Install platform tools dan build tools untuk semua versi
           echo "=== Installing Android SDK Versions 20 to 35 ==="
           
-          # Install build tools untuk semua versi
           for version in 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35; do
             echo "Installing Android SDK version $version..."
-            
-            # Install platform
             sdkmanager "platforms;android-$version" > /dev/null 2>&1 || true
-            
-            # Install build-tools untuk versi yang tersedia
             if [ $version -ge 21 ]; then
               sdkmanager "build-tools;${version}.0.0" > /dev/null 2>&1 || true
               sdkmanager "build-tools;${version}.0.1" > /dev/null 2>&1 || true
             fi
-            
             if [ $version -ge 23 ]; then
               sdkmanager "build-tools;${version}.0.2" > /dev/null 2>&1 || true
               sdkmanager "build-tools;${version}.0.3" > /dev/null 2>&1 || true
             fi
           done
           
-          # Install additional components
           sdkmanager "platform-tools" "emulator" > /dev/null 2>&1 || true
           sdkmanager "extras;android;m2repository" > /dev/null 2>&1 || true
           sdkmanager "extras;google;m2repository" > /dev/null 2>&1 || true
           sdkmanager "extras;google;google_play_services" > /dev/null 2>&1 || true
           
           echo "=== Android SDK Versions Installed Successfully ==="
-          
-          # List installed platforms
           echo "Installed platforms:"
           ls -la /opt/android-sdk/platforms/ 2>/dev/null || echo "No platforms found"
-          
           echo "Installed build-tools:"
           ls -la /opt/android-sdk/build-tools/ 2>/dev/null || echo "No build-tools found"
           
@@ -376,7 +293,6 @@ jobs:
         run: |
           echo "=== Auto detecting SDK requirements per project ==="
           
-          # Function to detect min SDK version from AndroidManifest.xml
           detect_sdk_version() {
             local manifest_file="$1"
             local min_sdk=""
@@ -394,11 +310,9 @@ jobs:
             echo "$min_sdk"
           }
           
-          # Detect SDK version for each project
           for project_dir in */; do
             echo "Checking: $project_dir"
             
-            # Check for AndroidManifest.xml
             manifest_file="${project_dir}AndroidManifest.xml"
             if [ ! -f "$manifest_file" ]; then
               manifest_file=$(find "$project_dir" -name "AndroidManifest.xml" -type f 2>/dev/null | head -1)
@@ -410,21 +324,17 @@ jobs:
               if [ -n "$min_sdk" ] && [ "$min_sdk" -ge 20 ] && [ "$min_sdk" -le 35 ]; then
                 echo "  → Project requires min SDK: $min_sdk"
                 echo "$project_dir|$min_sdk" >> sdk_versions.txt
-                
-                # Create local.properties with correct SDK version
                 cat > "${project_dir}local.properties" << EOF
-## This file is automatically generated by GitHub Actions
-sdk.dir=/opt/android-sdk
-minSdkVersion=$min_sdk
-targetSdkVersion=$min_sdk
-compileSdkVersion=$min_sdk
-EOF
+          sdk.dir=/opt/android-sdk
+          minSdkVersion=$min_sdk
+          targetSdkVersion=$min_sdk
+          compileSdkVersion=$min_sdk
+          EOF
               else
                 echo "  → No valid SDK version detected, using default (34)"
                 echo "$project_dir|34" >> sdk_versions.txt
               fi
             else
-              # Check build.gradle files
               gradle_file="${project_dir}build.gradle"
               if [ -f "$gradle_file" ]; then
                 min_sdk=$(grep -oP 'minSdkVersion\s+\K[0-9]+' "$gradle_file" 2>/dev/null | head -1)
@@ -453,8 +363,7 @@ EOF
         run: |
           echo "=== Setting up dynamic SDK environment ==="
           
-          # Create SDK version switcher script
-          cat > switch_sdk_version.sh << 'SWITCHER'
+          cat > switch_sdk_version.sh << 'EOF'
           #!/bin/bash
           
           VERSION=$1
@@ -471,12 +380,10 @@ EOF
           
           echo "Switching to Android SDK version: $VERSION"
           
-          # Set environment variables
           export ANDROID_SDK_ROOT=/opt/android-sdk
           export ANDROID_HOME=/opt/android-sdk
           export ANDROID_SDK_VERSION=$VERSION
           
-          # Check if platform exists
           if [ -d "/opt/android-sdk/platforms/android-$VERSION" ]; then
             echo "✓ Platform android-$VERSION found"
           else
@@ -484,7 +391,6 @@ EOF
             sdkmanager "platforms;android-$VERSION" > /dev/null 2>&1
           fi
           
-          # Check if build tools exist
           if [ -d "/opt/android-sdk/build-tools/${VERSION}.0.0" ]; then
             echo "✓ Build tools ${VERSION}.0.0 found"
             export ANDROID_BUILD_TOOLS="${VERSION}.0.0"
@@ -501,21 +407,17 @@ EOF
             echo "⚠ Build tools for version $VERSION not found"
           fi
           
-          # Save to environment file
           echo "ANDROID_SDK_VERSION=$VERSION" >> $GITHUB_ENV
           echo "COMPILE_SDK_VERSION=$VERSION" >> $GITHUB_ENV
           echo "TARGET_SDK_VERSION=$VERSION" >> $GITHUB_ENV
           
           echo "✓ SDK version $VERSION configured"
-          SWITCHER
+          EOF
           
           chmod +x switch_sdk_version.sh
           
-          # Auto switch SDK based on requirements
           if [ -f sdk_versions.txt ]; then
-            # Get the highest required SDK version
             HIGHEST_SDK=$(cut -d'|' -f2 sdk_versions.txt | sort -n | tail -1)
-            
             if [ -n "$HIGHEST_SDK" ]; then
               echo "Auto-selecting highest SDK version: $HIGHEST_SDK"
               ./switch_sdk_version.sh "$HIGHEST_SDK"
@@ -533,7 +435,6 @@ EOF
         run: |
           echo "=== MEMPERBAIKI ERROR ICONDATA ==="
           
-          # Cari semua file dart yang extends IconData dan fix
           find . -name "*.dart" -type f 2>/dev/null | while read file; do
             if grep -q "extends IconData" "$file" 2>/dev/null; then
               echo "Fixing: $file"
@@ -542,12 +443,10 @@ EOF
             fi
           done
           
-          # Hapus cache Flutter
           rm -rf ~/.pub-cache 2>/dev/null || true
           rm -rf /opt/flutter/bin/cache 2>/dev/null || true
           rm -rf /opt/flutter-versions/*/bin/cache 2>/dev/null || true
           
-          # Untuk Flutter project yang error, disable build sementara
           find . -name "pubspec.yaml" -type f 2>/dev/null | while read file; do
             dir=$(dirname "$file")
             if grep -r "IconData" "$dir" 2>/dev/null | grep -q "extends"; then
@@ -566,7 +465,6 @@ EOF
           
           echo "=== BUILDING APK WITH AUTO VERSION DETECTION ==="
           
-          # Build each project with its specific versions
           if [ -f flutter_versions.txt ]; then
             while IFS='|' read -r project_dir flutter_version; do
               if [ -d "$project_dir" ] && [ -n "$flutter_version" ]; then
@@ -578,7 +476,6 @@ EOF
                 
                 cd "$project_dir"
                 
-                # Switch to correct Flutter version
                 if [ "$flutter_version" != "stable" ]; then
                   export FLUTTER_ROOT="/opt/flutter-versions/flutter-$flutter_version"
                   export PATH="$FLUTTER_ROOT/bin:$PATH"
@@ -589,7 +486,6 @@ EOF
                   echo "Using Flutter stable"
                 fi
                 
-                # Get SDK version for this project
                 SDK_VERSION=$(grep "^$project_dir|" ../sdk_versions.txt 2>/dev/null | cut -d'|' -f2)
                 if [ -z "$SDK_VERSION" ]; then
                   SDK_VERSION=34
@@ -597,22 +493,17 @@ EOF
                 
                 echo "Android SDK Version: $SDK_VERSION"
                 
-                # Update build configuration
                 if [ -f "android/app/build.gradle" ]; then
                   sed -i "s/minSdkVersion [0-9]*/minSdkVersion $SDK_VERSION/g" android/app/build.gradle 2>/dev/null || true
                   sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/g" android/app/build.gradle 2>/dev/null || true
                   sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/g" android/app/build.gradle 2>/dev/null || true
                 fi
                 
-                # Clean and build
                 flutter clean 2>/dev/null || true
                 flutter pub get 2>/dev/null || true
                 
-                # Try build with current version
                 flutter build apk --release 2>/dev/null || {
                   echo "⚠️ Build failed with $flutter_version, trying fallback versions..."
-                  
-                  # Try fallback versions
                   for try_version in "3.22.0" "3.19.6" "3.16.9" "3.13.9" "3.10.6" "3.7.12" "3.3.10" "3.0.5" "2.10.5" "2.8.1" "2.5.3"; do
                     if [ "$try_version" != "$flutter_version" ]; then
                       echo "Trying Flutter $try_version..."
@@ -625,7 +516,6 @@ EOF
                   done
                 }
                 
-                # Copy result APK
                 if [ -f "build/app/outputs/flutter-apk/app-release.apk" ]; then
                   cp build/app/outputs/flutter-apk/app-release.apk "../${project_dir%/}_flutter${flutter_version}_sdk${SDK_VERSION}.apk"
                   echo "✅ APK built: ${project_dir%/}_flutter${flutter_version}_sdk${SDK_VERSION}.apk"
@@ -636,28 +526,20 @@ EOF
             done < flutter_versions.txt
           fi
           
-          # Also build regular Android projects (non-Flutter)
           if [ -f sdk_versions.txt ]; then
             while IFS='|' read -r project_dir sdk_version; do
-              # Skip if already built as Flutter project
               if ! grep -q "^$project_dir|" flutter_versions.txt 2>/dev/null; then
                 if [ -f "${project_dir}build.gradle" ] || [ -f "${project_dir}AndroidManifest.xml" ]; then
                   echo ""
                   echo "Building Android project: $project_dir (SDK: $sdk_version)"
-                  
                   cd "$project_dir"
-                  
-                  # Use gradle if available
                   if [ -f "gradlew" ]; then
                     chmod +x gradlew
                     ./gradlew assembleRelease 2>/dev/null || true
                   fi
-                  
-                  # Find and copy APK
                   find . -name "*.apk" -type f 2>/dev/null | while read apk; do
                     cp "$apk" "../${project_dir%/}_sdk${sdk_version}.apk" 2>/dev/null || true
                   done
-                  
                   cd ..
                 fi
               fi
@@ -707,7 +589,6 @@ EOF
           echo ""
           echo "$PUBLIC_IP" > ~/ssh_ip.txt
           echo "$ROOT_PASSWORD" > ~/ssh_pass.txt
-          
           echo ""
           echo "=== FLUTTER VERSIONS AVAILABLE ==="
           ls -la /opt/flutter-versions/ | grep flutter-
