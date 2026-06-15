@@ -125,7 +125,6 @@ jobs:
           sudo chmod -R 777 /opt/flutter-versions
           
           FLUTTER_VERSIONS=(
-            "3.0.5"
             "3.3.10"
             "3.7.12"
             "3.10.6"
@@ -219,7 +218,7 @@ jobs:
               
               if [ -n "$detected_version" ]; then
                 MATCHED_VERSION=""
-                for VERSION in "3.22.0" "3.19.6" "3.16.9" "3.13.9" "3.10.6" "3.7.12" "3.3.10" "3.0.5"; do
+                for VERSION in "3.22.0" "3.19.6" "3.16.9" "3.13.9" "3.10.6" "3.7.12" "3.3.10"; do
                   if [[ "$detected_version" == "$VERSION"* ]] || [[ "$detected_version" > "$VERSION" ]]; then
                     MATCHED_VERSION="$VERSION"
                     break
