@@ -6,6 +6,13 @@ on:
     - cron: '0 */5 * * *'
     - cron: '55 */5 * * *'
 
+# PERMISSIONS YANG DIPERLUKAN UNTUK TRIGGER WORKFLOW
+permissions:
+  contents: read
+  actions: write
+  checks: write
+  metadata: read
+
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -17,6 +24,14 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Ensure GitHub Token is Available
+        run: |
+          if [ -z "${{ secrets.GITHUB_TOKEN }}" ]; then
+            echo "⚠️ GITHUB_TOKEN is empty!"
+          else
+            echo "✅ GITHUB_TOKEN is available"
+          fi
       
       - name: Download Previous Data from Artifact
         uses: dawidd6/action-download-artifact@v3
@@ -32,21 +47,51 @@ jobs:
         run: |
           echo "=== RESTORING PREVIOUS DATA ==="
           
-          if [ -f "./restored-data/bot-data-backup.tar.gz" ]; then
+          # Cek semua kemungkinan backup (prioritas tertinggi dulu)
+          if [ -f "./restored-data/CRASH-RECOVERY-BACKUP.tar.gz" ]; then
+            echo "✅ Found crash recovery backup (highest priority)"
+            tar -xzf ./restored-data/CRASH-RECOVERY-BACKUP.tar.gz -C ./ 2>/dev/null
+            echo "Data restored from crash recovery backup"
+            
+          elif [ -f "./restored-data/FINAL-BACKUP-5.9H.tar.gz" ]; then
+            echo "✅ Found 5.9-hour backup"
+            tar -xzf ./restored-data/FINAL-BACKUP-5.9H.tar.gz -C ./ 2>/dev/null
+            echo "Data restored from 5.9h backup"
+            
+          elif [ -f "./restored-data/latest-backup.tar.gz" ]; then
+            echo "✅ Found latest backup"
+            tar -xzf ./restored-data/latest-backup.tar.gz -C ./ 2>/dev/null
+            echo "Data restored from latest backup"
+            
+          elif [ -f "./restored-data/bot-data-backup.tar.gz" ]; then
             echo "Found backup artifact, restoring..."
-            tar -xzf ./restored-data/bot-data-backup.tar.gz -C ./
+            tar -xzf ./restored-data/bot-data-backup.tar.gz -C ./ 2>/dev/null
             echo "✅ Data restored successfully from artifact!"
-            echo ""
-            echo "Restored files:"
-            tar -tzf ./restored-data/bot-data-backup.tar.gz 2>/dev/null | head -30
+            
           elif [ -f "./restored-data/final-backup.tar.gz" ]; then
             echo "Found final backup, restoring..."
-            tar -xzf ./restored-data/final-backup.tar.gz -C ./
+            tar -xzf ./restored-data/final-backup.tar.gz -C ./ 2>/dev/null
             echo "✅ Data restored from final backup"
+            
+          elif [ -f "./restored-data/hourly-backup.tar.gz" ]; then
+            echo "✅ Found hourly backup"
+            tar -xzf ./restored-data/hourly-backup.tar.gz -C ./ 2>/dev/null
+            echo "Data restored from hourly backup"
+            
           else
             echo "⚠️ No previous data found - Starting fresh"
           fi
           
+          # Tampilkan timestamp backup terakhir
+          if [ -f "./last_backup_time.txt" ]; then
+            BACKUP_TIME=$(cat ./last_backup_time.txt)
+            echo "Last backup timestamp: $(date -d @$BACKUP_TIME 2>/dev/null || echo $BACKUP_TIME)"
+          fi
+          
+          echo ""
+          echo "=== RESTORED DATA SUMMARY ==="
+          echo "Database files: $(find . -name "*.db" -o -name "*.sqlite" 2>/dev/null | wc -l)"
+          echo "Session folders: $(find . -type d -name "session*" 2>/dev/null | wc -l)"
           echo ""
           echo "=== CURRENT DATA FILES ==="
           echo "Database files:"
@@ -104,18 +149,16 @@ jobs:
           echo "/opt/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
           echo "/opt/android-sdk/platform-tools" >> $GITHUB_PATH
           
-      # ========== INSTALL ALL FLUTTER VERSIONS (1.0.0 s/d 3.22.0) ==========
+      # ========== INSTALL ALL FLUTTER VERSIONS ==========
       - name: Install ALL Flutter Versions (Legacy to Latest)
         run: |
           echo "=== INSTALLING ALL FLUTTER VERSIONS ==="
           echo "This may take 15-20 minutes..."
           
-          # Buat direktori untuk semua versi Flutter
           sudo mkdir -p /opt/flutter-versions
           sudo chmod -R 777 /opt/flutter-versions
           
-          # Daftar semua versi Flutter yang akan diinstall
-          FLUTTER_VERSIONS=
+          FLUTTER_VERSIONS=(
             "2.0.6"
             "2.2.3"
             "2.5.3"
@@ -131,7 +174,6 @@ jobs:
             "3.22.0"
           )
           
-          # Install setiap versi Flutter
           for VERSION in "${FLUTTER_VERSIONS[@]}"; do
             echo ""
             echo ">>> Installing Flutter version: $VERSION"
@@ -152,7 +194,7 @@ jobs:
               ./bin/flutter precache 2>/dev/null || true
               ./bin/flutter doctor 2>/dev/null || true
               echo "✅ Flutter $VERSION installed successfully"
-              echo "flutter-$VERSION=/opt/flutter-versions/flutter-$VERSION/bin/flutter" >> /opt/flutter-versions/versions.txt
+              echo "flutter-$VERSION=/opt/flutter-versions/flutter-$VERSION/bin/flutter" | sudo tee -a /opt/flutter-versions/versions.txt
             else
               echo "❌ Failed to install Flutter $VERSION"
             fi
@@ -200,7 +242,6 @@ jobs:
           
           chmod +x switch_project_flutter.sh
           
-          # Detect version for each project
           echo "Project Flutter Version Requirements:" > flutter_versions.txt
           
           for project_dir in */; do
@@ -721,7 +762,7 @@ jobs:
           curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           
-      - name: Run ALL Bots Simultaneously with package.json Detection
+      - name: Run ALL Bots Simultaneously with Auto Backup at 5.9 Hours
         run: |
           export NODE_OPTIONS="--max-old-space-size=12288"
           unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
@@ -823,22 +864,39 @@ jobs:
           echo ""
           echo "SSH Active on: $(cat ~/ssh_ip.txt 2>/dev/null)"
           echo ""
-          echo "=== Monitoring All Bots with Auto Backup Every Hour ==="
+          echo "=== Monitoring All Bots with Auto Backup at 5.9 Hours ==="
           
           LAST_BACKUP=$(date +%s)
+          WORKFLOW_START=$(date +%s)
+          WORKFLOW_MAX_SECONDS=21240
+          BACKUP_DONE=false
+          
+          # Start disk monitor background
+          (
+            while true; do
+              USAGE=$(df -h . | tail -1 | awk '{print $5}' | sed 's/%//')
+              if [ "$USAGE" -gt 85 ]; then
+                echo "⚠️ WARNING: Disk usage at ${USAGE}% - cleaning up..."
+                find . -name "*.log" -mtime +1 -delete 2>/dev/null || true
+                sudo rm -rf /tmp/* 2>/dev/null || true
+              fi
+              sleep 300
+            done
+          ) &
+          DISK_MONITOR_PID=$!
           
           while true; do
-            sleep 60
-            
             CURRENT_TIME=$(date +%s)
-            TIME_SINCE_BACKUP=$((CURRENT_TIME - LAST_BACKUP))
+            ELAPSED=$((CURRENT_TIME - WORKFLOW_START))
+            REMAINING=$((WORKFLOW_MAX_SECONDS - ELAPSED))
             
+            TIME_SINCE_BACKUP=$((CURRENT_TIME - LAST_BACKUP))
             if [ $TIME_SINCE_BACKUP -ge 3600 ]; then
               echo ""
-              echo "[$(date)] ⏰ Running scheduled backup..."
+              echo "[$(date)] ⏰ Running scheduled hourly backup..."
               
               mkdir -p /tmp/backup_$$
-              find . -name "*.db" -o -name "*.sqlite" -o -type d -name "session*" -o -type d -name "sessions" -o -name "*.log" -o -name "*.json" -not -path "./node_modules/*" -not -name "package*.json" 2>/dev/null | xargs -I {} cp --parents {} /tmp/backup_$$/ 2>/dev/null
+              find . -name "*.db" -o -name "*.sqlite" -o -type d -name "session*" -o -type d -name "sessions" -o -name "cache" -o -name "storage" -o -name "*.log" -o -name "*.json" -not -path "./node_modules/*" -not -name "package*.json" 2>/dev/null | xargs -I {} cp --parents {} /tmp/backup_$$/ 2>/dev/null
               
               tar -czf /tmp/hourly-backup.tar.gz -C /tmp/backup_$$ . 2>/dev/null
               
@@ -851,16 +909,79 @@ jobs:
               LAST_BACKUP=$CURRENT_TIME
             fi
             
+            # Health check setiap jam
+            if [ $((ELAPSED % 3600)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+              echo "[HEALTH CHECK] Verifying data integrity..."
+              SESSION_COUNT=$(find . -type d -name "session*" 2>/dev/null | wc -l)
+              DB_COUNT=$(find . -name "*.db" -o -name "*.sqlite" 2>/dev/null | wc -l)
+              echo "Health: $SESSION_COUNT sessions, $DB_COUNT databases"
+            fi
+            
+            # KRITIS: Deteksi mendekati 5.9 JAM
+            if [ $ELAPSED -ge $WORKFLOW_MAX_SECONDS ] && [ "$BACKUP_DONE" = false ]; then
+              echo ""
+              echo "=========================================="
+              echo "⚠️ APPROACHING 6-HOUR LIMIT (${ELAPSED}s elapsed / 5.9 hours)"
+              echo "Creating FINAL backup and triggering next workflow..."
+              echo "=========================================="
+              
+              FINAL_BACKUP="/tmp/final-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+              
+              tar -czf "$FINAL_BACKUP" \
+                --exclude="./node_modules" \
+                --exclude="./.git" \
+                --exclude="*.tar.gz" \
+                $(find . -name "*.db" -o -name "*.sqlite" -o -type d -name "session*" -o -type d -name "sessions" -o -name "cache" -o -name "storage" -o -name "*.json" -not -path "./node_modules/*" -o -name "*.log" -o -name ".env" 2>/dev/null) \
+                2>/dev/null || true
+              
+              cp "$FINAL_BACKUP" ./FINAL-BACKUP-5.9H.tar.gz
+              cp "$FINAL_BACKUP" ./bot-data-backup.tar.gz
+              
+              echo "✅ Final backup created: $(du -h ./FINAL-BACKUP-5.9H.tar.gz | cut -f1)"
+              
+              echo "$(date +%s)" > ./last_backup_time.txt
+              echo "$ELAPSED seconds elapsed" > ./workflow_stats.txt
+              
+              echo ""
+              echo "Triggering next workflow..."
+              
+              curl -L \
+                -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bot-247.yml/dispatches" \
+                -d '{"ref":"main"}' \
+                --max-time 10 \
+                --retry 3 \
+                --retry-delay 2
+              
+              BACKUP_DONE=true
+              
+              echo ""
+              echo "=== FINAL BACKUP COMPLETE ==="
+              echo "Workflow will exit in 10 seconds..."
+              sleep 10
+              break
+            fi
+            
+            if [ $((ELAPSED % 300)) -eq 0 ]; then
+              HOURS=$((ELAPSED / 3600))
+              MINUTES=$(((ELAPSED % 3600) / 60))
+              REMAINING_MIN=$((REMAINING / 60))
+              echo "[$(date)] 🟢 Bot running: ${HOURS}h ${MINUTES}m | 5.9h backup in ${REMAINING_MIN}m"
+            fi
+            
             ALL_ALIVE=true
             for PID in $PIDS; do
               if ! kill -0 $PID 2>/dev/null; then
-                echo "[WARNING] Bot PID $PID mati!"
+                echo "[WARNING] Bot PID $PID died!"
                 ALL_ALIVE=false
               fi
             done
             
             if ! kill -0 $TUNNEL_PID 2>/dev/null; then
-              echo "Tunnel mati, restarting..."
+              echo "Tunnel died, restarting..."
               ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
               TUNNEL_PID=$!
             fi
@@ -870,40 +991,15 @@ jobs:
               for PID in $PIDS; do
                 kill $PID 2>/dev/null
               done
-              
               sleep 5
-              
               NEW_PIDS=""
               for bot_dir in */; do
                 MAIN_FILE=""
-                if [ -f "${bot_dir}package.json" ]; then
-                  cd "$bot_dir"
-                  MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
-                  if [ -z "$MAIN_FILE" ] || [ ! -f "$MAIN_FILE" ]; then
-                    if [ -f "index.js" ]; then
-                      MAIN_FILE="index.js"
-                    elif [ -f "app.js" ]; then
-                      MAIN_FILE="app.js"
-                    elif [ -f "main.js" ]; then
-                      MAIN_FILE="main.js"
-                    fi
-                  fi
-                  cd ..
-                else
-                  if [ -f "${bot_dir}index.js" ]; then
-                    MAIN_FILE="index.js"
-                  elif [ -f "${bot_dir}app.js" ]; then
-                    MAIN_FILE="app.js"
-                  elif [ -f "${bot_dir}main.js" ]; then
-                    MAIN_FILE="main.js"
-                  fi
+                if [ -f "${bot_dir}index.js" ]; then MAIN_FILE="index.js"
+                elif [ -f "${bot_dir}app.js" ]; then MAIN_FILE="app.js"
+                elif [ -f "${bot_dir}main.js" ]; then MAIN_FILE="main.js"
                 fi
-                
                 if [ -n "$MAIN_FILE" ]; then
-                  export ANDROID_ID=$(openssl rand -hex 16)
-                  export GAID=$(openssl rand -hex 16)
-                  export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
-                  
                   cd "$bot_dir"
                   node -r ../fake-device.js "$MAIN_FILE" &
                   NEW_PIDS="$NEW_PIDS $!"
@@ -911,11 +1007,39 @@ jobs:
                 fi
               done
               PIDS="$NEW_PIDS"
-              echo "All bots restarted. New PIDs: $PIDS"
+              echo "All bots restarted."
             fi
             
-            echo "[$(date)] 🟢 Alive: Bots=$(echo $PIDS | wc -w) | Tunnel=$TUNNEL_PID | Next backup in $((3600 - TIME_SINCE_BACKUP))s"
+            echo "[$(date)] 🟢 Bots: $(echo $PIDS | wc -w) | 5.9h in ${REMAINING_MIN}m"
+            sleep 60
           done
+          
+          kill $DISK_MONITOR_PID 2>/dev/null || true
+          
+      - name: Validate Backup Before Upload
+        if: always()
+        run: |
+          echo "=== VALIDATING BACKUP FILES ==="
+          
+          if [ -f "./FINAL-BACKUP-5.9H.tar.gz" ]; then
+            SIZE=$(du -h ./FINAL-BACKUP-5.9H.tar.gz | cut -f1)
+            if [ "$SIZE" = "0" ] || [ "$SIZE" = "0B" ]; then
+              echo "⚠️ WARNING: 5.9H backup is empty!"
+            else
+              echo "✅ 5.9H backup valid: $SIZE"
+              echo "Contents:"
+              tar -tzf ./FINAL-BACKUP-5.9H.tar.gz 2>/dev/null | head -10
+            fi
+          else
+            echo "⚠️ No 5.9H backup found - creating emergency backup"
+            tar -czf FINAL-BACKUP-5.9H.tar.gz \
+              $(find . -name "*.db" -o -name "*.sqlite" -o -type d -name "session*" 2>/dev/null) \
+              2>/dev/null || true
+          fi
+          
+          if [ -f "./bot-data-backup.tar.gz" ]; then
+            echo "✅ Regular backup: $(du -h ./bot-data-backup.tar.gz | cut -f1)"
+          fi
           
       - name: Save ALL Data for Next Workflow
         if: always()
@@ -968,6 +1092,12 @@ jobs:
             echo "✅ Hourly backup saved"
           fi
           
+          echo ""
+          echo "=== Checking for 5.9H backup ==="
+          if [ -f "./FINAL-BACKUP-5.9H.tar.gz" ]; then
+            echo "✅ 5.9H backup found: $(du -h ./FINAL-BACKUP-5.9H.tar.gz | cut -f1)"
+          fi
+          
       - name: Upload Artifact for Next Workflow
         uses: actions/upload-artifact@v4
         if: always()
@@ -975,26 +1105,82 @@ jobs:
           name: bot-saved-data
           path: |
             bot-data-backup.tar.gz
+            FINAL-BACKUP-5.9H.tar.gz
+            CRASH-RECOVERY-BACKUP.tar.gz
             hourly-backup-*.tar.gz
+            hourly-backup.tar.gz
+            last_backup_time.txt
+            workflow_stats.txt
+            workflow_failure_log.txt
             *.apk
+            *.db
+            *.sqlite
+            session*/
+            sessions/
+            cache/
+            storage/
           retention-days: 1
           overwrite: true
+          if-no-files-found: warn
           
       - name: Trigger Next Workflow Automatically
-        if: always()
+        if: always() && (success() || failure())
         continue-on-error: true
         run: |
           echo "=== TRIGGERING NEXT WORKFLOW ==="
           
+          sleep 10
+          
+          # Method 1: gh CLI
+          echo "Attempting trigger with gh CLI..."
+          gh workflow run bot-247.yml --ref main 2>/dev/null || true
+          
+          # Method 2: curl
+          echo "Attempting trigger with curl..."
           curl -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bot-247.yml/dispatches" \
+            -d '{"ref":"main"}' \
+            --max-time 10 \
+            --retry 3 \
+            --retry-delay 2 || true
+          
+          # Method 3: repository dispatch
+          echo "Attempting repository dispatch..."
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+            -d "{\"event_type\":\"restart-bot\",\"client_payload\":{\"run_id\":\"${{ github.run_id }}\"}}" || true
+          
+          echo "✅ Trigger attempts completed"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Self-Restart on Failure (Fallback)
+        if: failure()
+        continue-on-error: true
+        run: |
+          echo "=== WORKFLOW FAILED, ATTEMPTING SELF-RESTART ==="
+          
+          echo "Workflow failed at $(date)" >> workflow_failure_log.txt
+          
+          tar -czf CRASH-RECOVERY-BACKUP.tar.gz \
+            $(find . -name "*.db" -o -name "*.sqlite" -o -type d -name "session*" 2>/dev/null) \
+            2>/dev/null || true
+          
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/bot-247.yml/dispatches" \
             -d '{"ref":"main"}'
           
-          echo "✅ Next workflow triggered successfully!"
+          echo "✅ Self-restart triggered"
           
       - name: Final Status
         if: always()
@@ -1020,4 +1206,7 @@ jobs:
           echo ""
           echo "Backup file size:"
           ls -lh bot-data-backup.tar.gz 2>/dev/null || echo "No backup file"
+          echo ""
+          echo "5.9H Backup file:"
+          ls -lh FINAL-BACKUP-5.9H.tar.gz 2>/dev/null || echo "No 5.9H backup yet"
           echo ""
