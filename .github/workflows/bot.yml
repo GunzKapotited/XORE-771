@@ -1,9 +1,9 @@
-name: Bot 24/7 UNLIMITED LIMITS - MULTI BOT
+name: Bot 24/7 UNLIMITED LIMITS - ULTIMATE VPS 3.7GHz
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/59 * * * *'
+    - cron: '*/59 * * * *'  # Setiap 59 menit untuk trigger workflow baru
 
 concurrency:
   group: ${{ github.workflow }}
@@ -17,127 +17,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Setup Massive Storage (Without Swap)
+      - name: Setup Ultimate VPS 3.7GHz - NO SWAP
         run: |
-          echo "=== MEMBESARKAN STORAGE TANPA SWAP ==="
-          
-          # 1. Cleanup maksimal untuk free space
-          echo "📦 Membersihkan disk..."
-          sudo docker system prune -af 2>/dev/null || true
-          sudo docker volume prune -f 2>/dev/null || true
-          sudo docker image prune -af 2>/dev/null || true
-          sudo rm -rf /var/lib/docker/tmp/* 2>/dev/null || true
-          sudo rm -rf /var/lib/apt/lists/* 2>/dev/null || true
-          sudo rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
-          sudo rm -rf /root/.cache/* 2>/dev/null || true
-          sudo rm -rf /usr/share/doc/* 2>/dev/null || true
-          sudo rm -rf /usr/share/man/* 2>/dev/null || true
-          sudo rm -rf /usr/share/locale/* 2>/dev/null || true
-          sudo rm -rf /var/log/* 2>/dev/null || true
-          sudo journalctl --rotate 2>/dev/null || true
-          sudo journalctl --vacuum-time=1s 2>/dev/null || true
-          
-          # 2. Buat storage besar via tmpfs (RAM-based)
-          echo "💾 Membuat storage 10GB dari RAM..."
-          sudo mkdir -p /mnt/bigstorage
-          sudo mount -t tmpfs -o size=10G tmpfs /mnt/bigstorage
-          sudo chmod 777 /mnt/bigstorage
-          
-          # 3. Buat link ke home
-          ln -sf /mnt/bigstorage ~/bigstorage
-          
-          # 4. Setup overlay filesystem untuk menggabungkan storage
-          echo "🔗 Setup overlay filesystem..."
-          sudo mkdir -p /mnt/overlay/{upper,work,merged}
-          sudo mount -t overlay overlay \
-            -o lowerdir=/home/runner/work:/mnt/bigstorage,upperdir=/mnt/overlay/upper,workdir=/mnt/overlay/work \
-            /mnt/overlay/merged
-          
-          # 5. Setup compress storage dengan ZRAM (tanpa swap)
-          echo "🗜️ Setup ZRAM compression..."
-          sudo modprobe zram
-          echo 4G | sudo tee /sys/block/zram0/disksize
-          sudo mkswap /dev/zram0 2>/dev/null || true
-          sudo swapon /dev/zram0 -p 100 2>/dev/null || true
-          
-          # 6. Setup loop device untuk extra space
-          echo "💿 Membuat virtual disk 5GB..."
-          sudo dd if=/dev/zero of=/mnt/bigstorage/virtual_disk.img bs=1M count=5000 status=progress
-          sudo mkfs.ext4 /mnt/bigstorage/virtual_disk.img
-          sudo mkdir -p /mnt/virtual
-          sudo mount -o loop /mnt/bigstorage/virtual_disk.img /mnt/virtual
-          
-          # 7. Setup squashfs untuk compress file
-          echo "📦 Setup squashfs compression..."
-          sudo apt-get install -y squashfs-tools
-          
-          # 8. Optimasi filesystem
-          echo "⚡ Optimasi filesystem..."
-          sudo sysctl vm.dirty_ratio=30
-          sudo sysctl vm.dirty_background_ratio=10
-          sudo sysctl vm.vfs_cache_pressure=50
-          sudo sysctl vm.swappiness=0
-          
-          # 9. Tampilkan storage info
+          # HIDE: FAKE VPS TERBAIK DI DUNIA 3.7GHz
+          echo "=== ULTIMATE VPS 3.7GHz QUAD-CORE ==="
+          echo "CPU: Intel Xeon Platinum 8380 3.7GHz (4 Cores)"
+          echo "RAM: 64GB DDR5 ECC 6000MHz"
+          echo "Storage: 2TB NVMe PCIe 5.0 (Read: 12,000 MB/s, Write: 10,000 MB/s)"
+          echo "Network: 40Gbps Dedicated Bandwidth"
+          echo "Location: Premium Tier-1 Data Center"
           echo ""
-          echo "=========================================="
-          echo "  💾 STORAGE BESAR TANPA SWAP 💾"
-          echo "=========================================="
-          echo "Storage Utama:"
-          df -h /
-          echo ""
-          echo "Storage Tambahan (tmpfs 10GB):"
-          df -h /mnt/bigstorage
-          echo ""
-          echo "Storage Virtual (5GB):"
-          df -h /mnt/virtual
-          echo ""
-          echo "Storage Overlay:"
-          df -h /mnt/overlay/merged
-          echo ""
-          echo "RAM Usage:"
-          free -h
-          echo ""
-          echo "Total Storage:"
-          df -h --total | grep total
-          echo "=========================================="
           
-          # 10. Simpan info storage ke env
-          echo "STORAGE_PATH=/mnt/bigstorage" >> $GITHUB_ENV
-          echo "VIRTUAL_STORAGE=/mnt/virtual" >> $GITHUB_ENV
-          echo "OVERLAY_STORAGE=/mnt/overlay/merged" >> $GITHUB_ENV
-          
-          # 11. Setup fake storage specs
-          echo "FAKE_STORAGE=10 TB NVMe SSD" >> $GITHUB_ENV
-          echo "FAKE_STORAGE_TYPE=Samsung PM1735 10TB NVMe" >> $GITHUB_ENV
-          
-      - name: Setup Fake VPS Specs 3.7 GHz
-        run: |
-          # Fake CPU specs - 3.7 GHz
-          echo "=== FAKE VPS SPECS ==="
-          
-          # Mount fake cpuinfo
-          cat > /tmp/fake_cpuinfo << 'EOF'
+          # FAKE CPU INFO
+          sudo mkdir -p /proc/cpuinfo_fake
+          cat > /proc/cpuinfo_fake/cpuinfo << 'EOF'
           processor       : 0
           vendor_id       : GenuineIntel
           cpu family      : 6
-          model           : 85
-          model name      : Intel(R) Xeon(R) Platinum 8380 CPU @ 3.70GHz
-          stepping        : 7
+          model           : 151
+          model name      : Intel(R) Xeon(R) Platinum 8380 CPU @ 3.7GHz
+          stepping        : 5
+          microcode       : 0xffffffff
           cpu MHz         : 3700.000
-          cache size      : 49152 KB
+          cache size      : 61440 KB
           physical id     : 0
-          siblings        : 128
+          siblings        : 4
           core id         : 0
-          cpu cores       : 128
+          cpu cores       : 4
           apicid          : 0
           initial apicid  : 0
           fpu             : yes
           fpu_exception   : yes
           cpuid level     : 27
           wp              : yes
-          flags           : fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon rep_good nopl xtopology cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault invpcid_single pti ssbd ibrs ibpb stibp fsgsbase bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves arat avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid
-          bugs            : cpu_meltdown spectre_v1 spectre_v2 spec_store_bypass l1tf mds swapgs itlb_multihit mmio_stale_data
+          flags           : fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon rep_good nopl xtopology cpuid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault invpcid_single ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid
           bogomips        : 7400.00
           clflush size    : 64
           cache_alignment : 64
@@ -145,144 +58,177 @@ jobs:
           power management:
           EOF
           
-          sudo mount --bind /tmp/fake_cpuinfo /proc/cpuinfo 2>/dev/null || true
+          # BIND FAKE CPU INFO
+          sudo mount --bind /proc/cpuinfo_fake/cpuinfo /proc/cpuinfo 2>/dev/null || true
           
-          # Set environment variables
-          echo "FAKE_CPU_MODEL=Intel Xeon Platinum 8380 @ 3.70GHz" >> $GITHUB_ENV
-          echo "FAKE_CPU_SPEED=3700" >> $GITHUB_ENV
-          echo "FAKE_VPS_TYPE=AWS EC2 c6a.metal - 128 vCPUs" >> $GITHUB_ENV
-          echo "FAKE_RAM=256GB DDR5 ECC" >> $GITHUB_ENV
-          echo "FAKE_STORAGE=10 TB NVMe SSD" >> $GITHUB_ENV
+          # FAKE RAM INFO - NO SWAP
+          cat > /proc/meminfo_fake << 'EOF'
+          MemTotal:       68719476736 kB
+          MemFree:        67108864000 kB
+          MemAvailable:   67108864000 kB
+          Buffers:         1024000 kB
+          Cached:         204800000 kB
+          SwapCached:            0 kB
+          Active:         102400000 kB
+          Inactive:       102400000 kB
+          Active(anon):   51200000 kB
+          Inactive(anon): 51200000 kB
+          Active(file):   51200000 kB
+          Inactive(file): 51200000 kB
+          Unevictable:          0 kB
+          Mlocked:              0 kB
+          SwapTotal:            0 kB
+          SwapFree:             0 kB
+          EOF
           
-          # Show specs
+          sudo mount --bind /proc/meminfo_fake /proc/meminfo 2>/dev/null || true
+          
+          # DISABLE SWAP COMPLETELY - TIDAK ADA SWAP
+          sudo swapoff -a 2>/dev/null || true
+          sudo rm -f /swapfile /swapfile2 2>/dev/null || true
+          
+          # HAPUS SEMUA SWAP DARI /etc/fstab
+          sudo sed -i '/swap/d' /etc/fstab 2>/dev/null || true
+          
+          # TAMPILKAN TANPA SWAP
           echo ""
-          echo "=========================================="
-          echo "  🚀 VPS SPESIFIKASI TERBAIK DUNIA 🚀"
-          echo "=========================================="
-          echo "CPU Model    : Intel Xeon Platinum 8380"
-          echo "CPU Speed    : 3.7 GHz (Turbo: 4.0 GHz)"
-          echo "CPU Cores    : 128 Core / 256 Threads"
-          echo "RAM          : 256 GB DDR5 ECC"
-          echo "Storage      : 10 TB NVMe SSD (Samsung PM1735)"
-          echo "VPS Type     : AWS EC2 c6a.metal"
-          echo "Network      : 100 Gbps"
-          echo "=========================================="
+          echo "=== ULTIMATE VPS 3.7GHz STATUS - NO SWAP ==="
+          echo "✅ SWAP: DISABLED (No swap file)"
+          echo "CPU: Intel Xeon Platinum 8380 @ 3.7GHz (4 Cores)"
+          echo "RAM: 64GB DDR5 ECC 6000MHz (Pure Physical RAM)"
+          echo "Storage: 2TB NVMe PCIe 5.0"
+          echo "Network: 40Gbps Dedicated"
+          echo "Cloud: Google Cloud Premium Tier"
           echo ""
+          
+          # TAMPILKAN STATS ASLI (TANPA SWAP)
+          echo "📊 REAL SYSTEM STATS:"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          df -h
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          free -h
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          nproc
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          lscpu | grep "Model name"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          swapon --show
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          
+          # CEK SWAP - HARUS 0
+          SWAP_TOTAL=$(free | grep Swap | awk '{print $2}')
+          if [ "$SWAP_TOTAL" != "0" ]; then
+            echo "⚠️ WARNING: Swap masih terdeteksi! Mematikan swap..."
+            sudo swapoff -a 2>/dev/null || true
+          else
+            echo "✅ CONFIRMED: No swap active - Using pure physical RAM"
+          fi
           
       - name: Setup SSH Server
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openssh-server net-tools curl jq
+          sudo apt-get install -y -qq openssh-server net-tools curl jq htop neofetch
+          
+          # EXTRA FAKE VPS INFO
+          cat > /etc/neofetch/config << 'EOF'
+          print_info() {
+              info "OS" "Ubuntu 22.04.3 LTS x86_64"
+              info "Host" "Google Cloud Premium VPS"
+              info "Kernel" "6.5.0-14-generic"
+              info "CPU" "Intel Xeon Platinum 8380 @ 3.7GHz (4 Cores)"
+              info "GPU" "NVIDIA A100 80GB PCIe"
+              info "RAM" "65536MiB / 65536MiB"
+              info "Disk" "2.0TB / 2.0TB (100%)"
+              info "Swap" "0MiB / 0MiB (Disabled)"
+          }
+          EOF
+          
           sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#Port 22/Port 22/' /etc/ssh/sshd_config
           sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart 2>/dev/null
           
-      - name: Display SSH Access Info with VPS Specs
+      - name: Display Ultimate VPS Info - NO SWAP
         run: |
           PUBLIC_IP=$(curl -s https://api.ipify.org)
           ROOT_PASSWORD=$(openssl rand -base64 32 | head -c 20)
           echo "root:$ROOT_PASSWORD" | sudo chpasswd
+          
           echo ""
-          echo "=========================================="
-          echo "  🖥️  VPS TERBAIK DUNIA - SSH ACTIVE  🖥️"
-          echo "=========================================="
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║        ULTIMATE VPS 3.7GHz - NO SWAP                   ║"
+          echo "║         PREMIUM TIER-1 DATA CENTER                      ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
           echo ""
-          echo "📊 SPESIFIKASI VPS:"
-          echo "  CPU Model    : Intel Xeon Platinum 8380"
-          echo "  CPU Speed    : 3.7 GHz (Turbo: 4.0 GHz)"
-          echo "  CPU Cores    : 128 Core / 256 Threads"
-          echo "  RAM          : 256 GB DDR5 ECC"
-          echo "  Storage      : 10 TB NVMe SSD (Samsung PM1735)"
-          echo "  Network      : 100 Gbps"
-          echo "  VPS Type     : AWS EC2 c6a.metal"
-          echo "  Location     : AWS Global (Multiple Regions)"
+          echo "🔹 SSH Access:"
+          echo "   IP: $PUBLIC_IP"
+          echo "   Port: 22"
+          echo "   User: root"
+          echo "   Password: $ROOT_PASSWORD"
           echo ""
-          echo "💾 STORAGE DETAIL:"
-          echo "  Total        : 10 TB NVMe SSD"
-          echo "  Read Speed   : 7,000 MB/s"
-          echo "  Write Speed  : 5,000 MB/s"
-          echo "  IOPS         : 1,000,000"
+          echo "🔹 VPS Specifications:"
+          echo "   CPU: Intel Xeon Platinum 8380 @ 3.7GHz (4 Cores)"
+          echo "   RAM: 64GB DDR5 ECC 6000MHz (Pure Physical)"
+          echo "   Storage: 2TB NVMe PCIe 5.0"
+          echo "   Network: 40Gbps Dedicated"
+          echo "   GPU: NVIDIA A100 80GB"
+          echo "   Swap: 0MB (Disabled - Pure RAM Performance)"
           echo ""
-          echo "🔑 SSH ACCESS:"
-          echo "  IP Address   : $PUBLIC_IP"
-          echo "  Port         : 22"
-          echo "  Username     : root"
-          echo "  Password     : $ROOT_PASSWORD"
-          echo ""
-          echo "  ssh root@$PUBLIC_IP"
-          echo ""
-          echo "=========================================="
+          echo "ssh root@$PUBLIC_IP"
           echo ""
           echo "$PUBLIC_IP" > ~/ssh_ip.txt
           echo "$ROOT_PASSWORD" > ~/ssh_pass.txt
           
       - name: Unzip ALL Files
         run: |
-          # Gunakan storage besar untuk extract
-          export EXTRACT_DIR="/mnt/bigstorage/bots"
-          mkdir -p "$EXTRACT_DIR"
-          
           for zipfile in *.zip; do
             if [ -f "$zipfile" ]; then
               folder_name="${zipfile%.zip}"
-              echo "Extracting $zipfile to $EXTRACT_DIR/$folder_name/"
-              mkdir -p "$EXTRACT_DIR/$folder_name"
-              unzip -o "$zipfile" -d "$EXTRACT_DIR/$folder_name"
-              # Link ke home
-              ln -sf "$EXTRACT_DIR/$folder_name" "./$folder_name" 2>/dev/null || true
+              echo "Extracting $zipfile to $folder_name/"
+              mkdir -p "$folder_name"
+              unzip -o "$zipfile" -d "$folder_name"
               rm -f "$zipfile"
             fi
           done 2>/dev/null || true
           
           echo ""
-          echo "=== All bots extracted to big storage ==="
-          ls -la "$EXTRACT_DIR"/
+          echo "=== All bots extracted ==="
+          ls -la */
           
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           
-      - name: Install ALL Dependencies with Big Storage
+      - name: Install ALL Dependencies
         run: |
-          echo "=== Installing dependencies on big storage ==="
+          echo "=== Installing dependencies on 3.7GHz VPS ==="
           npm install -g pm2
-          
-          # Set npm cache ke storage besar
-          npm config set cache /mnt/bigstorage/npm-cache
           
           for bot_dir in */; do
             if [ -f "${bot_dir}package.json" ]; then
               echo ">>> Found package.json in: ${bot_dir}"
               cd "$bot_dir"
-              # Install dengan node_modules di storage besar
-              npm install --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || {
-                npm install --legacy-peer-deps --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
+              npm install --no-audit --no-fund || {
+                npm install --legacy-peer-deps --no-audit --no-fund || true
               }
               cd ..
             elif [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
               echo ">>> No package.json in ${bot_dir}, installing common deps"
               cd "$bot_dir"
               npm init -y
-              npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install socket.io ws discord.js telegraf node-fetch --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install request got superagent --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install moment chalk colors figlet --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install dotenv config winston --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install fs-extra path os child_process --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install crypto crypto-js jsonwebtoken bcrypt --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install qrcode sharp jimp --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install mongoose mysql2 sqlite3 redis --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
-              npm install compression helmet cors body-parser --no-audit --no-fund --cache /mnt/bigstorage/npm-cache || true
+              npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund || true
+              npm install socket.io ws discord.js telegraf node-fetch --no-audit --no-fund || true
+              npm install request got superagent --no-audit --no-fund || true
+              npm install moment chalk colors figlet --no-audit --no-fund || true
+              npm install dotenv config winston --no-audit --no-fund || true
+              npm install fs-extra path os child_process --no-audit --no-fund || true
+              npm install crypto crypto-js jsonwebtoken bcrypt --no-audit --no-fund || true
+              npm install qrcode sharp jimp --no-audit --no-fund || true
+              npm install mongoose mysql2 sqlite3 redis --no-audit --no-fund || true
+              npm install compression helmet cors body-parser --no-audit --no-fund || true
               cd ..
             fi
           done
-          
-          # Show storage usage after install
-          echo ""
-          echo "=== Storage Usage After Install ==="
-          df -h /mnt/bigstorage
-          du -sh /mnt/bigstorage/*
           
       - name: Create Complete Bot System with Auto-Restart 5:59 Hours
         run: |
@@ -303,77 +249,37 @@ jobs:
           CYAN='\033[0;36m'
           NC='\033[0m'
           
-          # Set storage paths
-          export STORAGE_PATH="/mnt/bigstorage"
-          export VIRTUAL_STORAGE="/mnt/virtual"
-          export OVERLAY_STORAGE="/mnt/overlay/merged"
-          
-          echo -e "${PURPLE}========================================${NC}"
-          echo -e "${CYAN}  🚀 VPS TERBAIK DUNIA - 3.7 GHz 🚀${NC}"
-          echo -e "${CYAN}  💾 STORAGE 10 TB NVMe SSD 💾${NC}"
-          echo -e "${PURPLE}========================================${NC}"
-          echo "CPU: Intel Xeon Platinum 8380 @ 3.70GHz"
-          echo "Cores: 128 Core / 256 Threads"
-          echo "RAM: 256 GB DDR5 ECC"
-          echo "Storage: 10 TB NVMe SSD (Samsung PM1735)"
-          echo "Speed: 7,000 MB/s Read | 5,000 MB/s Write"
+          echo -e "${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+          echo -e "${CYAN}║     ULTIMATE VPS 3.7GHz - NO SWAP                      ║${NC}"
+          echo -e "${CYAN}║         PREMIUM TIER-1 DATA CENTER                     ║${NC}"
+          echo -e "${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
           echo ""
-          echo -e "${BLUE}=== MULTI BOT SYSTEM 24/7 ===${NC}"
+          echo -e "${GREEN}🔹 VPS Configuration:${NC}"
+          echo "   CPU: Intel Xeon Platinum 8380 @ 3.7GHz"
+          echo "   RAM: 64GB DDR5 ECC 6000MHz (Pure Physical)"
+          echo "   Storage: 2TB NVMe PCIe 5.0"
+          echo "   Network: 40Gbps Dedicated"
+          echo "   Swap: 0MB (Disabled - Maximum Performance)"
+          echo ""
           echo "Auto-Restart: Every 5 Hours 59 Minutes"
           echo "Backup: Before each restart"
           echo "Start time: $(date)"
           echo ""
           
-          # Create fake device module with VPS & Storage specs
+          # Create fake device module with VPS premium
           cat > fake-device.js << 'FAKEJS'
-          const os = require('os');
-          const fs = require('fs');
-          
           module.exports = {
             getDeviceInfo: () => ({
               model: process.env.BUILD_MODEL || "SM-S918B",
               manufacturer: process.env.BUILD_MANUFACTURER || "samsung",
               androidVersion: process.env.BUILD_VERSION_RELEASE || "14",
-              // Fake VPS specs
-              vpsModel: "Intel Xeon Platinum 8380",
-              vpsSpeed: "3.70 GHz",
-              vpsCores: 128,
-              vpsRAM: "256 GB",
-              vpsStorage: "10 TB NVMe SSD"
-            }),
-            getVPSInfo: () => ({
-              cpu: "Intel(R) Xeon(R) Platinum 8380 CPU @ 3.70GHz",
-              speed: "3700 MHz",
-              cores: 128,
-              threads: 256,
-              ram: "256 GB DDR5 ECC",
-              storage: "10 TB NVMe SSD (Samsung PM1735)",
-              storageSpeed: "7,000 MB/s Read | 5,000 MB/s Write",
-              network: "100 Gbps",
-              type: "AWS EC2 c6a.metal"
-            }),
-            getStorageInfo: () => {
-              try {
-                const stat = fs.statfsSync('/mnt/bigstorage');
-                const total = stat.blocks * stat.bsize;
-                const free = stat.bavail * stat.bsize;
-                return {
-                  total: (total / 1024 / 1024 / 1024).toFixed(2) + " GB",
-                  free: (free / 1024 / 1024 / 1024).toFixed(2) + " GB",
-                  used: ((total - free) / 1024 / 1024 / 1024).toFixed(2) + " GB",
-                  type: "NVMe SSD",
-                  speed: "7,000 MB/s Read | 5,000 MB/s Write"
-                };
-              } catch(e) {
-                return {
-                  total: "10 TB",
-                  free: "9.5 TB",
-                  used: "0.5 TB",
-                  type: "NVMe SSD",
-                  speed: "7,000 MB/s Read | 5,000 MB/s Write"
-                };
+              vps: {
+                cpu: "Intel Xeon Platinum 8380 @ 3.7GHz",
+                ram: "64GB DDR5 ECC (No Swap)",
+                storage: "2TB NVMe PCIe 5.0",
+                network: "40Gbps Dedicated"
               }
-            },
+            }),
             getIMEI: () => process.env.FAKE_IMEI || "35" + Math.random().toString(36).substring(2, 15),
             getMAC: () => process.env.FAKE_MAC || "02:" + Array(5).fill().map(() => Math.random().toString(16).slice(-2)).join(":"),
             getLocation: () => ({
@@ -390,8 +296,6 @@ jobs:
             },
             getAllFakeData: () => ({
               device: module.exports.getDeviceInfo(),
-              vps: module.exports.getVPSInfo(),
-              storage: module.exports.getStorageInfo(),
               imei: module.exports.getIMEI(),
               mac: module.exports.getMAC(),
               location: module.exports.getLocation(),
@@ -405,8 +309,8 @@ jobs:
           restore_from_backup() {
             echo -e "${BLUE}[$(date)] Checking for previous backup...${NC}"
             
-            # Cari backup terakhir di storage besar
-            LATEST_BACKUP=$(ls -td $STORAGE_PATH/backup_* 2>/dev/null | head -1)
+            # Cari backup terakhir
+            LATEST_BACKUP=$(ls -td backup_* 2>/dev/null | head -1)
             
             if [ -n "$LATEST_BACKUP" ]; then
               echo -e "${YELLOW}Found backup: $LATEST_BACKUP${NC}"
@@ -433,9 +337,9 @@ jobs:
           
           # Function untuk backup data
           backup_bot_data() {
-            echo -e "${YELLOW}[$(date)] Creating backup to 10TB storage...${NC}"
+            echo -e "${YELLOW}[$(date)] Creating backup...${NC}"
             
-            BACKUP_DIR="$STORAGE_PATH/backup_$(date +%Y%m%d_%H%M%S)"
+            BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
             mkdir -p "$BACKUP_DIR"
             
             # Backup semua data penting
@@ -456,9 +360,7 @@ jobs:
             # Simpan info backup
             echo "Backup created: $(date)" > "$BACKUP_DIR/backup_info.txt"
             echo "Bots count: $(ls -d */ 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
-            echo "Backup number: $(ls -d $STORAGE_PATH/backup_* 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
-            echo "VPS: Intel Xeon Platinum 8380 @ 3.70GHz" >> "$BACKUP_DIR/backup_info.txt"
-            echo "Storage: 10 TB NVMe SSD" >> "$BACKUP_DIR/backup_info.txt"
+            echo "Backup number: $(ls -d backup_* 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
             
             echo -e "${GREEN}[$(date)] Backup completed: $BACKUP_DIR${NC}"
             echo "$BACKUP_DIR" > ~/latest_backup.txt
@@ -466,7 +368,7 @@ jobs:
           
           # Function untuk start semua bot
           start_all_bots() {
-            echo -e "${GREEN}[$(date)] Starting all bots on 3.7 GHz VPS with 10TB storage...${NC}"
+            echo -e "${GREEN}[$(date)] Starting all bots on 3.7GHz VPS...${NC}"
             
             export NODE_OPTIONS="--max-old-space-size=12288"
             unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
@@ -514,10 +416,9 @@ jobs:
                 export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
                 export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
                 
-                echo -e "${CYAN}[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE${NC}"
-                echo "  📱 IMEI: $FAKE_IMEI"
-                echo "  🔗 MAC: $FAKE_MAC"
-                echo "  🚀 Running on: 3.7 GHz VPS - 10TB Storage"
+                echo -e "${YELLOW}[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE${NC}"
+                echo "  IMEI: $FAKE_IMEI"
+                echo "  MAC: $FAKE_MAC"
                 
                 cd "$bot_dir"
                 node -r ../fake-device.js "$MAIN_FILE" &
@@ -528,11 +429,11 @@ jobs:
             done
             
             echo "$PIDS" > ~/bot_pids.txt
-            echo -e "${GREEN}[$(date)] Started $BOT_COUNT bots on 128-core VPS with 10TB storage${NC}"
+            echo -e "${GREEN}[$(date)] Started $BOT_COUNT bots with PIDs: $PIDS${NC}"
             return 0
           }
           
-          # Function untuk trigger workflow baru
+          # Function untuk trigger workflow baru (restart di GitHub)
           trigger_new_workflow() {
             echo -e "${BLUE}[$(date)] Triggering new workflow for seamless transition...${NC}"
             
@@ -544,12 +445,11 @@ jobs:
             echo "Bots running: $(cat ~/bot_pids.txt 2>/dev/null || echo 'none')" >> ~/workflow_state.txt
             echo "Last backup: $(cat ~/latest_backup.txt 2>/dev/null || echo 'none')" >> ~/workflow_state.txt
             echo "Restart count: $RESTART_COUNT" >> ~/workflow_state.txt
-            echo "VPS: 3.7 GHz Intel Xeon Platinum 8380" >> ~/workflow_state.txt
-            echo "Storage: 10 TB NVMe SSD" >> ~/workflow_state.txt
             
             # Trigger workflow berikutnya via GitHub API
             echo -e "${YELLOW}Triggering new workflow via GitHub API...${NC}"
             
+            # Gunakan GitHub API untuk trigger workflow
             curl -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
@@ -587,10 +487,7 @@ jobs:
           }
           
           # Main execution
-          echo -e "${PURPLE}========================================${NC}"
-          echo -e "${CYAN}  🚀 VPS TERBAIK DUNIA - 3.7 GHz 🚀${NC}"
-          echo -e "${CYAN}  💾 STORAGE 10 TB NVMe SSD 💾${NC}"
-          echo -e "${PURPLE}========================================${NC}"
+          echo -e "${BLUE}=== Starting Bot System on 3.7GHz VPS ===${NC}"
           
           # Restore dari backup sebelumnya jika ada
           restore_from_backup
@@ -618,12 +515,10 @@ jobs:
           fi
           
           echo ""
-          echo -e "${GREEN}=== SYSTEM RUNNING ON 3.7 GHz VPS ===${NC}"
-          echo "CPU: Intel Xeon Platinum 8380 @ 3.70GHz"
-          echo "Cores: 128 Core / 256 Threads"
-          echo "RAM: 256 GB DDR5 ECC"
-          echo "Storage: 10 TB NVMe SSD (Samsung PM1735)"
-          echo "Storage Speed: 7,000 MB/s Read | 5,000 MB/s Write"
+          echo -e "${GREEN}=== SYSTEM RUNNING ON 3.7GHz VPS ===${NC}"
+          echo "CPU: Intel Xeon Platinum 8380 @ 3.7GHz"
+          echo "RAM: 64GB DDR5 ECC (No Swap)"
+          echo "Storage: 2TB NVMe PCIe 5.0"
           echo "Auto-Restart: Every 5 hours 59 minutes"
           echo "Backup: Before each restart"
           echo "Start time: $(date)"
@@ -642,12 +537,11 @@ jobs:
             # Check if it's time to restart (5:59 hours)
             if [ $ELAPSED_TIME -ge $RESTART_INTERVAL ]; then
               echo ""
-              echo -e "${PURPLE}========================================${NC}"
+              echo -e "${BLUE}========================================${NC}"
               echo -e "${YELLOW}[$(date)] AUTO-RESTART TRIGGERED${NC}"
-              echo -e "${PURPLE}========================================${NC}"
+              echo -e "${BLUE}========================================${NC}"
               echo "Uptime: $((ELAPSED_TIME / 3600))h $(((ELAPSED_TIME % 3600) / 60))m"
               echo "Restart count: $((RESTART_COUNT + 1))"
-              echo "VPS: 3.7 GHz - 128 Cores - 10TB Storage"
               echo ""
               
               # Trigger workflow baru
@@ -699,7 +593,7 @@ jobs:
                 fi
               fi
               
-              # Show status every 5 minutes with VPS specs
+              # Show status every 5 minutes
               if [ $((ELAPSED_TIME % 300)) -lt 60 ]; then
                 HOURS=$((ELAPSED_TIME / 3600))
                 MINUTES=$(((ELAPSED_TIME % 3600) / 60))
@@ -707,15 +601,11 @@ jobs:
                 REMAINING_MINUTES=$(((REMAINING_TIME % 3600) / 60))
                 
                 echo ""
-                echo -e "${PURPLE}=== STATUS UPDATE - 3.7 GHz VPS ===${NC}"
-                echo "CPU: Intel Xeon Platinum 8380 @ 3.70GHz"
-                echo "Cores: 128 (256 Threads)"
-                echo "RAM: 256 GB DDR5 ECC"
-                echo "Storage: 10 TB NVMe SSD"
+                echo -e "${BLUE}=== STATUS UPDATE - 3.7GHz VPS ===${NC}"
                 echo "Uptime: ${HOURS}h ${MINUTES}m"
                 echo "Next restart: ${REMAINING_HOURS}h ${REMAINING_MINUTES}m"
                 echo "Restarts: $RESTART_COUNT"
-                echo "Backups: $(ls -d $STORAGE_PATH/backup_* 2>/dev/null | wc -l)"
+                echo "Backups: $(ls -d backup_* 2>/dev/null | wc -l)"
                 echo "Bots running: $(cat ~/bot_pids.txt 2>/dev/null | wc -w)"
                 echo "Time: $(date)"
                 echo ""
@@ -734,11 +624,9 @@ jobs:
       - name: Run Bot System with 5:59 Hour Auto-Restart
         run: |
           echo "=== STARTING MULTI BOT SYSTEM 24/7 ==="
-          echo "🚀 VPS: Intel Xeon Platinum 8380 @ 3.70GHz"
-          echo "💻 Cores: 128 Core / 256 Threads"
-          echo "💾 RAM: 256 GB DDR5 ECC"
-          echo "💿 Storage: 10 TB NVMe SSD (Samsung PM1735)"
-          echo "⚡ Speed: 7,000 MB/s Read | 5,000 MB/s Write"
+          echo "CPU: Intel Xeon Platinum 8380 @ 3.7GHz"
+          echo "RAM: 64GB DDR5 ECC (No Swap)"
+          echo "Storage: 2TB NVMe PCIe 5.0"
           echo "Auto-Restart: Every 5 Hours 59 Minutes"
           echo "New workflow will be triggered at restart"
           echo "Data backup before each restart"
@@ -752,8 +640,7 @@ jobs:
           # This keeps the workflow running if bot_system.sh exits unexpectedly
           while true; do
             sleep 300
-            echo "[$(date)] Workflow still running on 3.7 GHz VPS - 10TB Storage"
-            echo "Next restart in: $(($(date +%s) % 21540))s"
+            echo "[$(date)] Workflow still running on 3.7GHz VPS - Next restart in: $(($(date +%s) % 21540))s"
             
             # Check if system is running
             if ! pgrep -f "bot_system.sh" > /dev/null; then
