@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 */5 * * *'
-    - cron: '55 */5 * * *'
+    - cron: '59 */5 * * *'
 
 concurrency:
   group: ${{ github.workflow }}
@@ -13,7 +13,7 @@ concurrency:
 jobs:
   bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    timeout-minutes: 359
     
     steps:
       - uses: actions/checkout@v4
@@ -743,6 +743,9 @@ jobs:
           chmod +x fake_device.sh
           source fake_device.sh
           
+          # SET +E = JANGAN BERHENTI MESKIPUN ADA ERROR
+          set +e
+          
           PIDS=""
           BOT_COUNT=0
           
@@ -793,16 +796,16 @@ jobs:
                 START_SCRIPT=$(node -p "try{require('./package.json').scripts?.start || ''}catch(e){''}" 2>/dev/null)
                 if [ -n "$START_SCRIPT" ] && [ "$START_SCRIPT" != "node $MAIN_FILE" ]; then
                   echo "  Using npm start script: $START_SCRIPT"
-                  npm start &
+                  nohup npm start > ../bot_${BOT_COUNT}.log 2>&1 &
                   PID=$!
                 else
-                  node -r ../fake-device.js "$MAIN_FILE" &
+                  nohup node -r ../fake-device.js "$MAIN_FILE" > ../bot_${BOT_COUNT}.log 2>&1 &
                   PID=$!
                 fi
                 cd ..
               else
                 cd "$bot_dir"
-                node -r ../fake-device.js "$MAIN_FILE" &
+                nohup node -r ../fake-device.js "$MAIN_FILE" > ../bot_${BOT_COUNT}.log 2>&1 &
                 PID=$!
                 cd ..
               fi
@@ -894,10 +897,11 @@ jobs:
               echo "[$(date)] 🟢 Bot running: ${HOURS}h ${MINUTES}m | 5.9h backup in ${REMAINING_MIN}m"
             fi
             
+            # TETAP JALAN MESKIPUN BOT MATI
             ALL_ALIVE=true
             for PID in $PIDS; do
               if ! kill -0 $PID 2>/dev/null; then
-                echo "[WARNING] Bot PID $PID mati!"
+                echo "[WARNING] Bot PID $PID mati, tapi workflow tetap jalan"
                 ALL_ALIVE=false
               fi
             done
@@ -908,10 +912,11 @@ jobs:
               TUNNEL_PID=$!
             fi
             
+            # JIKA SEMUA BOT MATI, RESTART TAPI JANGAN BREAK
             if [ "$ALL_ALIVE" = false ]; then
-              echo "Restarting all bots..."
+              echo "Mencoba restart semua bot..."
               for PID in $PIDS; do
-                kill $PID 2>/dev/null
+                kill $PID 2>/dev/null || true
               done
               sleep 5
               NEW_PIDS=""
@@ -926,7 +931,7 @@ jobs:
                 fi
                 if [ -n "$MAIN_FILE" ]; then
                   cd "$bot_dir"
-                  node -r ../fake-device.js "$MAIN_FILE" &
+                  nohup node -r ../fake-device.js "$MAIN_FILE" > ../bot_${BOT_COUNT}.log 2>&1 &
                   NEW_PIDS="$NEW_PIDS $!"
                   cd ..
                 fi
