@@ -2,6 +2,8 @@ name: Bot 24/7 UNLIMITED LIMITS - MULTI BOT
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '*/59 * * * *'  # Setiap 59 menit untuk memastikan kontinuitas
 
 concurrency:
   group: ${{ github.workflow }}
@@ -39,18 +41,13 @@ jobs:
           df -h
           free -h
           
-      - name: Setup SSH Server with Persistent Access
+      - name: Setup SSH Server
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openssh-server net-tools
+          sudo apt-get install -y -qq openssh-server net-tools curl jq
           sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#Port 22/Port 22/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config
-          echo "UseDNS no" | sudo tee -a /etc/ssh/sshd_config
-          echo "GSSAPIAuthentication no" | sudo tee -a /etc/ssh/sshd_config
-          echo "MaxSessions 100" | sudo tee -a /etc/ssh/sshd_config
-          echo "MaxStartups 100:30:200" | sudo tee -a /etc/ssh/sshd_config
           sudo systemctl restart ssh 2>/dev/null || sudo service ssh restart 2>/dev/null
           
       - name: Display SSH Access Info
@@ -60,7 +57,7 @@ jobs:
           echo "root:$ROOT_PASSWORD" | sudo chpasswd
           echo ""
           echo "=========================================="
-          echo "  MULTI BOT MODE - ALL ZIP WILL RUN"
+          echo "  MULTI BOT MODE - AUTO RESTART 5:59 HOURS"
           echo "  SSH: ACTIVE"
           echo "=========================================="
           echo ""
@@ -75,7 +72,7 @@ jobs:
           echo "$PUBLIC_IP" > ~/ssh_ip.txt
           echo "$ROOT_PASSWORD" > ~/ssh_pass.txt
           
-      - name: Unzip ALL Files to Separate Folders
+      - name: Unzip ALL Files
         run: |
           for zipfile in *.zip; do
             if [ -f "$zipfile" ]; then
@@ -95,42 +92,23 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Install ALL Dependencies from package.json
+      - name: Install ALL Dependencies
         run: |
-          echo "=== Installing dependencies from package.json ==="
-          
-          # Install global tools
+          echo "=== Installing dependencies ==="
           npm install -g pm2
           
-          # Loop semua folder dan install dari package.json jika ada
           for bot_dir in */; do
             if [ -f "${bot_dir}package.json" ]; then
-              echo ""
               echo ">>> Found package.json in: ${bot_dir}"
               cd "$bot_dir"
-              
-              # Baca node version dari package.json jika ada
-              NODE_VERSION=$(node -p "try{require('./package.json').engines?.node || ''}catch(e){''}" 2>/dev/null)
-              if [ -n "$NODE_VERSION" ]; then
-                echo "  Required Node.js version: $NODE_VERSION"
-              fi
-              
-              # Install dependencies dari package.json
               npm install --no-audit --no-fund || {
-                echo "  Warning: npm install failed, trying with --legacy-peer-deps"
                 npm install --legacy-peer-deps --no-audit --no-fund || true
               }
-              
               cd ..
             elif [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
-              echo ""
-              echo ">>> No package.json in ${bot_dir}, creating and installing common deps"
+              echo ">>> No package.json in ${bot_dir}, installing common deps"
               cd "$bot_dir"
-              
-              # Buat package.json kalo ga ada
               npm init -y
-              
-              # Install dependencies yang paling umum dipake
               npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund || true
               npm install socket.io ws discord.js telegraf node-fetch --no-audit --no-fund || true
               npm install request got superagent --no-audit --no-fund || true
@@ -141,50 +119,34 @@ jobs:
               npm install qrcode sharp jimp --no-audit --no-fund || true
               npm install mongoose mysql2 sqlite3 redis --no-audit --no-fund || true
               npm install compression helmet cors body-parser --no-audit --no-fund || true
-              npm install express-session cookie-parser morgan --no-audit --no-fund || true
-              npm install nodemailer multer cloudinary --no-audit --no-fund || true
-              
               cd ..
             fi
           done
           
-          echo ""
-          echo "=== All dependencies installed ==="
-          
-      - name: Detect and Setup Node.js Versions per Bot
+      - name: Create Complete Bot System with Auto-Restart 5:59 Hours
         run: |
-          echo "=== Detecting Node.js requirements per bot ==="
+          cat > bot_system.sh << 'BOTSYSTEM'
+          #!/bin/bash
           
-          # Simpan requirement tiap bot
-          for bot_dir in */; do
-            if [ -f "${bot_dir}package.json" ]; then
-              cd "$bot_dir"
-              
-              # Baca engines.node dari package.json
-              NODE_REQ=$(node -p "try{require('./package.json').engines?.node || ''}catch(e){''}" 2>/dev/null)
-              if [ -n "$NODE_REQ" ]; then
-                echo "${bot_dir} requires: $NODE_REQ"
-                echo "$bot_dir|$NODE_REQ" >> ../node_requirements.txt
-              else
-                echo "${bot_dir} no specific node version required"
-              fi
-              
-              # Baca main file dari package.json
-              MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
-              if [ -n "$MAIN_FILE" ] && [ -f "$MAIN_FILE" ]; then
-                echo "${bot_dir}|$MAIN_FILE" >> ../bot_main_files.txt
-              fi
-              
-              cd ..
-            fi
-          done
+          # Configuration
+          RESTART_INTERVAL=21540  # 5 jam 59 menit dalam detik
+          BACKUP_INTERVAL=21540   # Sama dengan restart interval
+          WORKFLOW_TRIGGER_TIME=21540  # 5:59 jam
           
+          # Colors
+          RED='\033[0;31m'
+          GREEN='\033[0;32m'
+          YELLOW='\033[1;33m'
+          BLUE='\033[0;34m'
+          NC='\033[0m'
+          
+          echo -e "${BLUE}=== MULTI BOT SYSTEM 24/7 ===${NC}"
+          echo "Auto-Restart: Every 5 Hours 59 Minutes"
+          echo "Backup: Before each restart"
+          echo "Start time: $(date)"
           echo ""
-          echo "=== Node.js requirements detected ==="
-          cat node_requirements.txt 2>/dev/null || echo "No specific requirements"
           
-      - name: Create Fake Device Module (Global)
-        run: |
+          # Create fake device module
           cat > fake-device.js << 'FAKEJS'
           module.exports = {
             getDeviceInfo: () => ({
@@ -217,119 +179,80 @@ jobs:
           };
           FAKEJS
           
-      - name: Download Cloudflared
-        run: |
-          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          chmod +x cloudflared
-          
-      - name: Create Backup Script
-        run: |
-          cat > backup_bots.sh << 'BACKUPSCRIPT'
-          #!/bin/bash
-          
-          BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
-          echo "Creating backup in: $BACKUP_DIR"
-          
-          # Create backup directory
-          mkdir -p "$BACKUP_DIR"
-          
-          # Backup all bot data
-          for bot_dir in */; do
-            if [ -d "$bot_dir" ] && [ "$bot_dir" != "backup_"* ]; then
-              echo "Backing up: $bot_dir"
-              mkdir -p "$BACKUP_DIR/$bot_dir"
-              # Copy important files (data, logs, databases, etc)
-              cp -r "$bot_dir"/* "$BACKUP_DIR/$bot_dir"/ 2>/dev/null || true
-            fi
-          done
-          
-          # Backup important environment files
-          cp fake-device.js "$BACKUP_DIR/" 2>/dev/null || true
-          cp ~/ssh_ip.txt "$BACKUP_DIR/" 2>/dev/null || true
-          cp ~/ssh_pass.txt "$BACKUP_DIR/" 2>/dev/null || true
-          
-          # Create backup info
-          echo "Backup created at: $(date)" > "$BACKUP_DIR/backup_info.txt"
-          echo "Total bots: $(ls -d */ 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
-          echo "Backup number: $(ls -d backup_* 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
-          
-          # List all backups
-          echo ""
-          echo "=== All Backups ==="
-          ls -la backup_* 2>/dev/null || echo "No backups yet"
-          echo ""
-          echo "Backup completed in: $BACKUP_DIR"
-          echo "$BACKUP_DIR" > ~/latest_backup.txt
-          BACKUPSCRIPT
-          chmod +x backup_bots.sh
-          
-      - name: Run ALL Bots with Auto-Restart Every 6 Hours
-        run: |
-          export NODE_OPTIONS="--max-old-space-size=12288"
-          unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
-          unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
-          
-          echo "=== Starting ALL Bots with 6-hour Auto-Restart ==="
-          echo ""
-          
-          # Setup fake device environment
-          cat > fake_device.sh << 'DEVICE'
-          #!/bin/bash
-          export ANDROID_ID=$(openssl rand -hex 16)
-          export DEVICE_ID=$(openssl rand -hex 8)
-          export GAID=$(openssl rand -hex 16)
-          export BUILD_MODEL="SM-S918B"
-          export BUILD_MANUFACTURER="samsung"
-          export BUILD_VERSION_RELEASE="14"
-          export BUILD_VERSION_SDK_INT="34"
-          DEVICE
-          chmod +x fake_device.sh
-          source fake_device.sh
-          
-          # Function to start all bots
-          start_all_bots() {
-            echo "[$(date)] Starting all bots..."
+          # Function untuk backup data
+          backup_bot_data() {
+            echo -e "${YELLOW}[$(date)] Creating backup...${NC}"
             
-            # Generate new fake data for each bot
+            BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
+            mkdir -p "$BACKUP_DIR"
+            
+            # Backup semua data penting
+            for bot_dir in */; do
+              if [ -d "$bot_dir" ] && [[ "$bot_dir" != backup_* ]]; then
+                echo "  Backing up: $bot_dir"
+                mkdir -p "$BACKUP_DIR/$bot_dir"
+                # Copy semua file penting
+                cp -r "$bot_dir"/* "$BACKUP_DIR/$bot_dir"/ 2>/dev/null || true
+              fi
+            done
+            
+            # Backup environment dan config
+            cp fake-device.js "$BACKUP_DIR/" 2>/dev/null || true
+            cp ~/ssh_ip.txt "$BACKUP_DIR/" 2>/dev/null || true
+            cp ~/ssh_pass.txt "$BACKUP_DIR/" 2>/dev/null || true
+            
+            # Simpan info backup
+            echo "Backup created: $(date)" > "$BACKUP_DIR/backup_info.txt"
+            echo "Bots count: $(ls -d */ 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
+            echo "Backup number: $(ls -d backup_* 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
+            
+            echo -e "${GREEN}[$(date)] Backup completed: $BACKUP_DIR${NC}"
+            echo "$BACKUP_DIR" > ~/latest_backup.txt
+          }
+          
+          # Function untuk start semua bot
+          start_all_bots() {
+            echo -e "${GREEN}[$(date)] Starting all bots...${NC}"
+            
+            export NODE_OPTIONS="--max-old-space-size=12288"
+            unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
+            unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
+            
             PIDS=""
             BOT_COUNT=0
             
             for bot_dir in */; do
-              # Skip backup directories
-              if [[ "$bot_dir" == backup_* ]]; then
+              if [[ "$bot_dir" == backup_* ]] || [[ "$bot_dir" == .* ]]; then
                 continue
               fi
               
               # Detect main file
               MAIN_FILE=""
-              
               if [ -f "${bot_dir}package.json" ]; then
                 cd "$bot_dir"
                 MAIN_FILE=$(node -p "try{require('./package.json').main || ''}catch(e){''}" 2>/dev/null)
                 if [ -z "$MAIN_FILE" ] || [ ! -f "$MAIN_FILE" ]; then
-                  if [ -f "index.js" ]; then
-                    MAIN_FILE="index.js"
-                  elif [ -f "app.js" ]; then
-                    MAIN_FILE="app.js"
-                  elif [ -f "main.js" ]; then
-                    MAIN_FILE="main.js"
-                  fi
+                  for possible in "index.js" "app.js" "main.js" "server.js" "bot.js"; do
+                    if [ -f "$possible" ]; then
+                      MAIN_FILE="$possible"
+                      break
+                    fi
+                  done
                 fi
                 cd ..
               else
-                if [ -f "${bot_dir}index.js" ]; then
-                  MAIN_FILE="index.js"
-                elif [ -f "${bot_dir}app.js" ]; then
-                  MAIN_FILE="app.js"
-                elif [ -f "${bot_dir}main.js" ]; then
-                  MAIN_FILE="main.js"
-                fi
+                for possible in "index.js" "app.js" "main.js" "server.js" "bot.js"; do
+                  if [ -f "${bot_dir}$possible" ]; then
+                    MAIN_FILE="$possible"
+                    break
+                  fi
+                done
               fi
               
               if [ -n "$MAIN_FILE" ]; then
                 BOT_COUNT=$((BOT_COUNT + 1))
                 
-                # Generate fake data UNIQUE untuk setiap bot
+                # Generate unique fake data
                 export ANDROID_ID=$(openssl rand -hex 16)
                 export GAID=$(openssl rand -hex 16)
                 export FAKE_IMEI="35$(openssl rand -hex 12 | head -c 13)"
@@ -337,7 +260,7 @@ jobs:
                 export FAKE_LATITUDE="-$((RANDOM % 90)).$((RANDOM % 999999))"
                 export FAKE_LONGITUDE="$((RANDOM % 180)).$((RANDOM % 999999))"
                 
-                echo "[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE"
+                echo -e "${YELLOW}[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE${NC}"
                 echo "  IMEI: $FAKE_IMEI"
                 echo "  MAC: $FAKE_MAC"
                 
@@ -350,126 +273,227 @@ jobs:
             done
             
             echo "$PIDS" > ~/bot_pids.txt
-            echo "[$(date)] Started $BOT_COUNT bots with PIDs: $PIDS"
+            echo -e "${GREEN}[$(date)] Started $BOT_COUNT bots with PIDs: $PIDS${NC}"
             return 0
           }
           
-          # Function to restart with backup
-          restart_with_backup() {
-            echo ""
-            echo "=== PERFORMING AUTO-RESTART WITH BACKUP ==="
-            echo "Time: $(date)"
+          # Function untuk trigger workflow baru
+          trigger_new_workflow() {
+            echo -e "${BLUE}[$(date)] Triggering new workflow for seamless transition...${NC}"
             
-            # Create backup first
-            echo "Creating backup before restart..."
-            ./backup_bots.sh
+            # Save current state
+            echo "STATE_$(date +%s)" > ~/workflow_state.txt
+            echo "Bots running: $(cat ~/bot_pids.txt 2>/dev/null || echo 'none')" >> ~/workflow_state.txt
+            echo "Last backup: $(cat ~/latest_backup.txt 2>/dev/null || echo 'none')" >> ~/workflow_state.txt
             
-            # Kill all current bots
+            # Signal for restart
+            touch ~/trigger_restart
+            echo "New workflow triggered at: $(date)" >> ~/trigger_log.txt
+          }
+          
+          # Function untuk graceful shutdown
+          graceful_shutdown() {
+            echo -e "${YELLOW}[$(date)] Performing graceful shutdown...${NC}"
+            
+            # Backup data
+            backup_bot_data
+            
+            # Kill all bots
             if [ -f ~/bot_pids.txt ]; then
               BOT_PIDS=$(cat ~/bot_pids.txt)
               for PID in $BOT_PIDS; do
-                echo "Stopping bot PID: $PID"
+                echo "  Stopping bot PID: $PID"
+                kill -15 $PID 2>/dev/null || true
+                sleep 1
                 kill -9 $PID 2>/dev/null || true
               done
             fi
             
             # Kill tunnel
-            if [ -n "$TUNNEL_PID" ]; then
-              echo "Stopping tunnel PID: $TUNNEL_PID"
+            if [ -f ~/tunnel_pid.txt ]; then
+              TUNNEL_PID=$(cat ~/tunnel_pid.txt)
+              echo "  Stopping tunnel PID: $TUNNEL_PID"
+              kill -15 $TUNNEL_PID 2>/dev/null || true
+              sleep 1
               kill -9 $TUNNEL_PID 2>/dev/null || true
             fi
             
-            # Wait for cleanup
-            sleep 5
-            
-            # Restart bots
-            start_all_bots
-            
-            # Restart tunnel
-            ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
-            TUNNEL_PID=$!
-            echo "Tunnel restarted: PID $TUNNEL_PID"
-            
-            RESTART_COUNT=$((RESTART_COUNT + 1))
-            LAST_RESTART_TIME=$(date +%s)
-            
-            echo ""
-            echo "=== AUTO-RESTART COMPLETED ==="
-            echo "Restart count: $RESTART_COUNT"
-            echo "Next restart in: 6 hours"
-            echo "Time: $(date)"
-            echo "====================================="
-            echo ""
+            echo -e "${GREEN}[$(date)] Graceful shutdown complete${NC}"
           }
           
-          # Start bots initially
+          # Main execution
+          echo -e "${BLUE}=== Starting Bot System ===${NC}"
+          
+          # Start bots
           start_all_bots
           
           # Start Cloudflare Tunnel
+          echo "Starting Cloudflare Tunnel..."
           ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
           TUNNEL_PID=$!
+          echo $TUNNEL_PID > ~/tunnel_pid.txt
           echo "Tunnel PID: $TUNNEL_PID"
           
-          # Restart counter
+          # Start timing
+          START_TIME=$(date +%s)
           RESTART_COUNT=0
-          LAST_RESTART_TIME=$(date +%s)
-          RESTART_INTERVAL=21600  # 6 hours in seconds
+          LAST_BACKUP_TIME=$START_TIME
           
           echo ""
-          echo "=== Monitoring System with 6-hour Auto-Restart ==="
-          echo "Bots will auto-restart every 6 hours with backup"
-          echo "Initial start time: $(date)"
+          echo -e "${GREEN}=== SYSTEM RUNNING ===${NC}"
+          echo "Auto-Restart: Every 5 hours 59 minutes"
+          echo "Backup: Before each restart"
+          echo "Start time: $(date)"
+          echo "Initial PID: $$"
           echo ""
           
-          # Main monitoring loop
+          # Main loop
           while true; do
             sleep 60
             
             CURRENT_TIME=$(date +%s)
-            TIME_SINCE_RESTART=$((CURRENT_TIME - LAST_RESTART_TIME))
+            ELAPSED_TIME=$((CURRENT_TIME - START_TIME))
+            REMAINING_TIME=$((RESTART_INTERVAL - ELAPSED_TIME))
             
-            # Check if 6 hours passed
-            if [ $TIME_SINCE_RESTART -ge $RESTART_INTERVAL ]; then
-              restart_with_backup
+            # Check if it's time to restart (5:59 hours)
+            if [ $ELAPSED_TIME -ge $RESTART_INTERVAL ]; then
+              echo ""
+              echo -e "${BLUE}========================================${NC}"
+              echo -e "${YELLOW}[$(date)] AUTO-RESTART TRIGGERED${NC}"
+              echo -e "${BLUE}========================================${NC}"
+              echo "Uptime: $((ELAPSED_TIME / 3600))h $(((ELAPSED_TIME % 3600) / 60))m"
+              echo "Restart count: $((RESTART_COUNT + 1))"
+              echo ""
+              
+              # Step 1: Trigger new workflow (will start in 1 minute)
+              trigger_new_workflow
+              
+              # Step 2: Backup current data
+              backup_bot_data
+              
+              # Step 3: Graceful shutdown
+              graceful_shutdown
+              
+              # Step 4: Wait for new workflow to take over (1 minute)
+              echo "Waiting 60 seconds for new workflow to start..."
+              sleep 60
+              
+              # Step 5: Restart current system (if new workflow hasn't started)
+              echo "Restarting current system..."
+              start_all_bots
+              
+              # Reset timing
+              START_TIME=$(date +%s)
+              RESTART_COUNT=$((RESTART_COUNT + 1))
+              
+              echo -e "${GREEN}[$(date)] System restarted successfully${NC}"
+              echo "New restart scheduled in 5 hours 59 minutes"
+              echo ""
+              
+              # Clear trigger file
+              rm -f ~/trigger_restart
+              
             else
-              # Normal monitoring - check if bots are still running
+              # Regular monitoring
+              # Check if workflow should be triggered by other means
+              if [ -f ~/trigger_restart ]; then
+                echo -e "${YELLOW}[$(date)] External restart signal detected${NC}"
+                rm -f ~/trigger_restart
+                # Restart immediately
+                backup_bot_data
+                graceful_shutdown
+                sleep 10
+                start_all_bots
+                START_TIME=$(date +%s)
+                RESTART_COUNT=$((RESTART_COUNT + 1))
+              fi
+              
+              # Check if bots are still running
               ALL_ALIVE=true
               if [ -f ~/bot_pids.txt ]; then
                 BOT_PIDS=$(cat ~/bot_pids.txt)
                 for PID in $BOT_PIDS; do
                   if ! kill -0 $PID 2>/dev/null; then
-                    echo "[WARNING] Bot PID $PID died!"
+                    echo -e "${RED}[WARNING] Bot PID $PID died!${NC}"
                     ALL_ALIVE=false
                   fi
                 done
               fi
               
-              # Check tunnel
-              if ! kill -0 $TUNNEL_PID 2>/dev/null; then
-                echo "Tunnel died, restarting..."
-                ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
-                TUNNEL_PID=$!
-                echo "Tunnel restarted: PID $TUNNEL_PID"
-              fi
-              
               # If any bot died, restart all
               if [ "$ALL_ALIVE" = false ]; then
-                echo "Bot(s) died, performing restart..."
-                restart_with_backup
+                echo -e "${YELLOW}Bot(s) died, restarting all bots...${NC}"
+                # Kill all current bots
+                if [ -f ~/bot_pids.txt ]; then
+                  BOT_PIDS=$(cat ~/bot_pids.txt)
+                  for PID in $BOT_PIDS; do
+                    kill -9 $PID 2>/dev/null || true
+                  done
+                fi
+                sleep 2
+                start_all_bots
               fi
               
-              # Show status periodically
-              REMAINING_HOURS=$(((RESTART_INTERVAL - TIME_SINCE_RESTART) / 3600))
-              REMAINING_MINUTES=$((((RESTART_INTERVAL - TIME_SINCE_RESTART) % 3600) / 60))
-              REMAINING_SECONDS=$(((RESTART_INTERVAL - TIME_SINCE_RESTART) % 60))
-              echo "[$(date)] Status: Bots running | Next restart in: ${REMAINING_HOURS}h ${REMAINING_MINUTES}m ${REMAINING_SECONDS}s | Restarts: $RESTART_COUNT | Backups: $(ls -d backup_* 2>/dev/null | wc -l)"
+              # Check tunnel
+              if [ -f ~/tunnel_pid.txt ]; then
+                TUNNEL_PID=$(cat ~/tunnel_pid.txt)
+                if ! kill -0 $TUNNEL_PID 2>/dev/null; then
+                  echo "Tunnel died, restarting..."
+                  ./cloudflared tunnel run --token eyJhIjoiY2FkNjFhM2UyYzk5Y2NiN2IwNTQ2MmU0MWY1N2JjNTYiLCJ0IjoiZjE5ZGViYTItYTI2My00YTExLWE1YjktYTRlNGE1MzA4NTJlIiwicyI6Ik1tVXlZak01TlRrdE16SmtNUzAwWXpOaExUbGpOamN0WVdWbFlUVTFaR0V4TVdRNSJ9 &
+                  echo $! > ~/tunnel_pid.txt
+                  echo "Tunnel restarted"
+                fi
+              fi
+              
+              # Show status every 5 minutes
+              if [ $((ELAPSED_TIME % 300)) -lt 60 ]; then
+                HOURS=$((ELAPSED_TIME / 3600))
+                MINUTES=$(((ELAPSED_TIME % 3600) / 60))
+                REMAINING_HOURS=$((REMAINING_TIME / 3600))
+                REMAINING_MINUTES=$(((REMAINING_TIME % 3600) / 60))
+                
+                echo ""
+                echo -e "${BLUE}=== STATUS UPDATE ===${NC}"
+                echo "Uptime: ${HOURS}h ${MINUTES}m"
+                echo "Next restart: ${REMAINING_HOURS}h ${REMAINING_MINUTES}m"
+                echo "Restarts: $RESTART_COUNT"
+                echo "Backups: $(ls -d backup_* 2>/dev/null | wc -l)"
+                echo "Bots running: $(cat ~/bot_pids.txt 2>/dev/null | wc -w)"
+                echo "Time: $(date)"
+                echo ""
+              fi
             fi
           done
+          BOTSYSTEM
+          
+          chmod +x bot_system.sh
+          
+      - name: Download Cloudflared
+        run: |
+          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          
+      - name: Run Bot System with 5:59 Hour Auto-Restart
+        run: |
+          echo "=== STARTING MULTI BOT SYSTEM 24/7 ==="
+          echo "Auto-Restart: Every 5 Hours 59 Minutes"
+          echo "New workflow will be triggered at restart"
+          echo "Data backup before each restart"
+          echo ""
+          
+          # Run bot system
+          ./bot_system.sh
           
       - name: Keep Workflow Alive
         run: |
           # This keeps the workflow running
           while true; do
-            sleep 60
-            echo "[$(date)] Workflow still running..."
+            sleep 300
+            echo "[$(date)] Workflow still running - Next restart in: $(($(date +%s) % 21540))s"
+            
+            # Check if system is running
+            if ! pgrep -f "bot_system.sh" > /dev/null; then
+              echo "WARNING: Bot system died! Restarting..."
+              ./bot_system.sh &
+            fi
           done
