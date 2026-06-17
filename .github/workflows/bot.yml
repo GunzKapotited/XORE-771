@@ -357,13 +357,13 @@ jobs:
             fi
           done
           
-      - name: Create Complete Bot System with Auto-Restart 5:59 Hours
+      - name: Create Complete Bot System - Backup at 6 Hours Exactly
         run: |
           cat > bot_system.sh << 'BOTSYSTEM'
           #!/bin/bash
           
-          # Configuration
-          RESTART_INTERVAL=21540  # 5 jam 59 menit dalam detik
+          # Configuration - 6 JAM PAS = 21600 detik
+          RESTART_INTERVAL=21600  # 6 jam tepat dalam detik
           
           # Colors
           RED='\033[0;31m'
@@ -383,7 +383,8 @@ jobs:
           echo "Storage: 4 TB NVMe SSD"
           echo ""
           echo -e "${BLUE}=== MULTI BOT SYSTEM 24/7 ===${NC}"
-          echo "Auto-Restart: Every 5 Hours 59 Minutes"
+          echo "Workflow Lifetime: 6 JAM PAS"
+          echo "Backup: HANYA 1 KALI di 6 JAM"
           echo "Backup: SEMUA FILE (di dalam & di luar folder)"
           echo "Start time: $(date)"
           echo ""
@@ -754,7 +755,7 @@ jobs:
           trigger_new_workflow() {
             echo -e "${BLUE}[$(date)] Triggering new workflow dengan BACKUP SEMUA FILE...${NC}"
             
-            # Backup semua file
+            # Backup semua file (INI SATU-SATUNYA BACKUP YANG TERJADI)
             backup_all_files
             
             # Simpan state
@@ -834,8 +835,8 @@ jobs:
           
           echo ""
           echo -e "${GREEN}=== SYSTEM RUNNING ===${NC}"
-          echo "Backup: SEMUA FILE (di dalam & di luar folder)"
-          echo "Auto-Restart: Every 5 hours 59 minutes"
+          echo "Workflow Lifetime: 6 JAM PAS"
+          echo "Backup: HANYA 1 KALI di 6 JAM (SEMUA FILE)"
           echo "Start time: $(date)"
           echo "Restart count: $RESTART_COUNT"
           echo ""
@@ -847,14 +848,16 @@ jobs:
             CURRENT_TIME=$(date +%s)
             ELAPSED_TIME=$((CURRENT_TIME - START_TIME))
             
+            # Check if it's time to restart workflow (6 JAM PAS)
             if [ $ELAPSED_TIME -ge $RESTART_INTERVAL ]; then
               echo ""
               echo -e "${PURPLE}========================================${NC}"
-              echo -e "${YELLOW}[$(date)] AUTO-RESTART TRIGGERED${NC}"
+              echo -e "${YELLOW}[$(date)] AUTO-RESTART TRIGGERED (6 JAM PAS)${NC}"
               echo -e "${PURPLE}========================================${NC}"
-              echo "Uptime: $((ELAPSED_TIME / 3600))h $(((ELAPSED_TIME % 3600) / 60))m"
+              echo "Uptime: $((ELAPSED_TIME / 3600))h $(((ELAPSED_TIME % 3600) / 60))m $((ELAPSED_TIME % 60))s"
               echo ""
               
+              # INI SATU-SATUNYA BACKUP YANG TERJADI
               trigger_new_workflow
               graceful_shutdown
               
@@ -901,18 +904,20 @@ jobs:
               if [ $((ELAPSED_TIME % 300)) -lt 60 ]; then
                 HOURS=$((ELAPSED_TIME / 3600))
                 MINUTES=$(((ELAPSED_TIME % 3600) / 60))
+                SECONDS=$((ELAPSED_TIME % 60))
                 REMAINING_TIME=$((RESTART_INTERVAL - ELAPSED_TIME))
                 REMAINING_HOURS=$((REMAINING_TIME / 3600))
                 REMAINING_MINUTES=$(((REMAINING_TIME % 3600) / 60))
+                REMAINING_SECONDS=$((REMAINING_TIME % 60))
                 
                 echo ""
                 echo -e "${PURPLE}=== STATUS UPDATE ===${NC}"
-                echo "Uptime: ${HOURS}h ${MINUTES}m"
-                echo "Next restart: ${REMAINING_HOURS}h ${REMAINING_MINUTES}m"
+                echo "Uptime: ${HOURS}h ${MINUTES}m ${SECONDS}s"
+                echo "Remaining until restart: ${REMAINING_HOURS}h ${REMAINING_MINUTES}m ${REMAINING_SECONDS}s"
                 echo "Restarts: $RESTART_COUNT"
                 echo "Backups: $(ls -d backup_* 2>/dev/null | wc -l)"
                 echo "Bots running: $(cat ~/bot_pids.txt 2>/dev/null | wc -w)"
-                echo "Backup type: SEMUA FILE"
+                echo "Backup type: SEMUA FILE (HANYA 1 KALI di 6 JAM)"
                 echo "Time: $(date)"
                 echo ""
               fi
@@ -934,7 +939,8 @@ jobs:
           echo "💻 Cores: 128 Core / 256 Threads"
           echo "💾 RAM: 256 GB DDR5 ECC"
           echo "💿 Storage: 4 TB NVMe SSD"
-          echo "Backup: SEMUA FILE (di dalam & di luar folder)"
+          echo "Workflow Lifetime: 6 JAM PAS"
+          echo "Backup: HANYA 1 KALI di 6 JAM (SEMUA FILE)"
           echo ""
           
           ./bot_system.sh
@@ -952,7 +958,7 @@ jobs:
           done
 
       # ============================================
-      # UPLOAD BACKUP KE ARTIFACT
+      # UPLOAD BACKUP SEMUA FILE KE ARTIFACT
       # ============================================
       - name: Upload Backup SEMUA FILE ke Artifact
         if: always()
