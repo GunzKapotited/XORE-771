@@ -44,38 +44,43 @@ jobs:
             pbzip2 \
             nethogs \
             htop \
-            iftop
+            iftop || true
           
           # 2. Optimasi TCP untuk kecepatan tinggi
-          sudo sysctl -w net.core.rmem_max=134217728
-          sudo sysctl -w net.core.wmem_max=134217728
-          sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 134217728"
-          sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 134217728"
-          sudo sysctl -w net.core.netdev_max_backlog=5000
-          sudo sysctl -w net.ipv4.tcp_congestion_control=bbr
-          sudo sysctl -w net.ipv4.tcp_notsent_lowat=16384
-          sudo sysctl -w net.ipv4.tcp_mtu_probing=1
-          sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0
-          sudo sysctl -w net.ipv4.tcp_timestamps=1
-          sudo sysctl -w net.ipv4.tcp_sack=1
-          sudo sysctl -w net.ipv4.tcp_window_scaling=1
+          sudo sysctl -w net.core.rmem_max=134217728 || true
+          sudo sysctl -w net.core.wmem_max=134217728 || true
+          sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 134217728" || true
+          sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 134217728" || true
+          sudo sysctl -w net.core.netdev_max_backlog=5000 || true
+          sudo sysctl -w net.ipv4.tcp_congestion_control=bbr || true
+          sudo sysctl -w net.ipv4.tcp_notsent_lowat=16384 || true
+          sudo sysctl -w net.ipv4.tcp_mtu_probing=1 || true
+          sudo sysctl -w net.ipv4.tcp_slow_start_after_idle=0 || true
+          sudo sysctl -w net.ipv4.tcp_timestamps=1 || true
+          sudo sysctl -w net.ipv4.tcp_sack=1 || true
+          sudo sysctl -w net.ipv4.tcp_window_scaling=1 || true
           
           # 3. DNS cepat
           echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 9.9.9.9" | sudo tee -a /etc/resolv.conf
           
-          # 4. Test speed
+          # 4. Test speed (tanpa ping ICMP)
           echo ""
           echo "📊 TESTING SPEED INTERNET:"
-          speedtest-cli --simple || echo "⚠️ Speed test tidak tersedia"
+          speedtest-cli --simple 2>/dev/null || echo "⚠️ Speed test tidak tersedia"
           
           # 5. Tampilkan info jaringan
           echo ""
           echo "📡 NETWORK INFO:"
           ip addr show | grep inet
           echo ""
-          ping -c 4 8.8.8.8
+          
+          # Test koneksi dengan curl (bukan ping)
+          echo "📡 TESTING CONNECTION:"
+          curl -s -o /dev/null -w "Google: %{http_code} - %{time_total}s\n" https://www.google.com || echo "Google: timeout"
+          curl -s -o /dev/null -w "Cloudflare: %{http_code} - %{time_total}s\n" https://1.1.1.1 || echo "Cloudflare: timeout"
+          curl -s -o /dev/null -w "GitHub: %{http_code} - %{time_total}s\n" https://github.com || echo "GitHub: timeout"
           
           # 6. Simpan konfigurasi untuk semua bot
           cat > /tmp/speed_optimize.sh << 'SPEEDSH'
@@ -221,16 +226,16 @@ jobs:
             echo "✅ Backup ditemukan, merestore SEMUA data..."
             
             # Extract semua zip dengan parallel
-            find /tmp/restore_backup -name "*.zip" -type f | \
-              parallel -j 4 "unzip -o {} -d /tmp/restore_backup/"
+            find /tmp/restore_backup -name "*.zip" -type f 2>/dev/null | \
+              parallel -j 4 "unzip -o {} -d /tmp/restore_backup/" 2>/dev/null || true
             
             # Extract tar dengan pigz (multi-thread)
-            find /tmp/restore_backup -name "*.tar.gz" -type f | \
-              parallel -j 4 "tar -xzf {} -C /tmp/restore_backup/"
+            find /tmp/restore_backup -name "*.tar.gz" -type f 2>/dev/null | \
+              parallel -j 4 "tar -xzf {} -C /tmp/restore_backup/" 2>/dev/null || true
             
             # Extract tar dengan pbzip2
-            find /tmp/restore_backup -name "*.tar.bz2" -type f | \
-              parallel -j 4 "tar -xjf {} -C /tmp/restore_backup/"
+            find /tmp/restore_backup -name "*.tar.bz2" -type f 2>/dev/null | \
+              parallel -j 4 "tar -xjf {} -C /tmp/restore_backup/" 2>/dev/null || true
             
             # 1. Restore SEMUA folder bot
             for bot_dir in /tmp/restore_backup/bot_*/; do
@@ -418,14 +423,14 @@ jobs:
           sudo chmod 600 /swapfile2
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
-          sudo sysctl vm.swappiness=5
-          sudo sysctl vm.vfs_cache_pressure=30
-          sudo sysctl vm.dirty_ratio=15
-          sudo sysctl vm.dirty_background_ratio=5
+          sudo sysctl vm.swappiness=5 || true
+          sudo sysctl vm.vfs_cache_pressure=30 || true
+          sudo sysctl vm.dirty_ratio=15 || true
+          sudo sysctl vm.dirty_background_ratio=5 || true
           sudo docker system prune -af 2>/dev/null || true
           sudo rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
           sudo mkdir -p /mnt/extrastorage
-          sudo mount -t tmpfs -o size=8G tmpfs /mnt/extrastorage
+          sudo mount -t tmpfs -o size=8G tmpfs /mnt/extrastorage || true
           echo "=== Storage Configuration ==="
           df -h
           free -h
@@ -464,7 +469,7 @@ jobs:
       - name: Setup SSH Server
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openssh-server net-tools curl jq zip unzip tree
+          sudo apt-get install -y -qq openssh-server net-tools curl jq zip unzip tree || true
           sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#Port 22/Port 22/' /etc/ssh/sshd_config
