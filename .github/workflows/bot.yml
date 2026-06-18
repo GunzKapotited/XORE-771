@@ -133,60 +133,25 @@ jobs:
           sudo cpufreq-set -g performance 2>/dev/null || true
           
           # ============================================
-          # WRAPPER UNTUK WGET/CURL - FIX LIMIT RATE
+          # WRAPPER UNTUK WGET/CURL - FIX ERROR (TANPA OPSI)
           # ============================================
           
           # Backup original
           sudo mv /usr/bin/wget /usr/bin/wget.original 2>/dev/null || true
           sudo mv /usr/bin/curl /usr/bin/curl.original 2>/dev/null || true
           
-          # Create Wrapper WGET - SPEED MAKSIMAL (TANPA LIMIT RATE BUG)
+          # Create Wrapper WGET - SIMPLE (TANPA OPSI BERMASALAH)
           sudo tee /usr/bin/wget << 'WGETWRAP'
           #!/bin/bash
-          # WGET WRAPPER - SPEED MAKSIMAL
-          ARGS=()
-          
-          # Parse arguments - pertahankan semua argumen
-          for arg in "$@"; do
-            ARGS+=("$arg")
-          done
-          
-          # Tambahkan optimasi tanpa limit rate bermasalah
-          ARGS+=("--tries=3")
-          ARGS+=("--timeout=60")
-          ARGS+=("--dns-timeout=5")
-          ARGS+=("--connect-timeout=10")
-          ARGS+=("--read-timeout=30")
-          
-          # Jalankan wget original dengan args
-          /usr/bin/wget.original "${ARGS[@]}"
+          /usr/bin/wget.original "$@"
           WGETWRAP
-          
           sudo chmod +x /usr/bin/wget
           
-          # Create WRAPPER CURL - SPEED MAKSIMAL (TANPA LIMIT RATE BUG)
+          # Create WRAPPER CURL - SIMPLE (TANPA OPSI BERMASALAH)
           sudo tee /usr/bin/curl << 'CURLWRAP'
           #!/bin/bash
-          # CURL WRAPPER - SPEED MAKSIMAL
-          ARGS=()
-          
-          # Parse arguments - pertahankan semua argumen
-          for arg in "$@"; do
-            ARGS+=("$arg")
-          done
-          
-          # Tambahkan optimasi TANPA --limit-rate (fix error)
-          ARGS+=("--connect-timeout 30")
-          ARGS+=("--max-time 600")
-          ARGS+=("--retry 3")
-          ARGS+=("--retry-delay 2")
-          ARGS+=("--retry-max-time 60")
-          ARGS+=("--speed-time 10")
-          ARGS+=("--speed-limit 1")
-          
-          /usr/bin/curl.original "${ARGS[@]}"
+          /usr/bin/curl.original "$@"
           CURLWRAP
-          
           sudo chmod +x /usr/bin/curl
           
           # ============================================
@@ -228,9 +193,8 @@ jobs:
           export WGET_TIMEOUT=60
           export WGET_TRIES=3
           
-          # Alias tanpa limit rate bermasalah
-          alias wget='wget --tries=3 --timeout=60'
-          alias curl='curl --connect-timeout 30 --retry 3'
+          alias wget='wget --limit-rate=200M --tries=3 --timeout=60'
+          alias curl='curl'
           alias aria2c='aria2c -x 32 -s 32 -k 1M --max-download-limit=0'
           alias axel='axel -n 20 -a'
           alias speedtest='speedtest-cli --simple'
@@ -276,7 +240,7 @@ jobs:
           echo "  - DNS: Optimized (1.1.1.1, 8.8.8.8, etc)"
           echo "  - TCP: BBR + Optimized buffers"
           echo "  - Node.js: 24GB heap, 128 threads"
-          echo "  - Wget/Curl: Wrapped for max speed (FIXED)"
+          echo "  - Wget/Curl: Wrapped (FIXED)"
           echo "  - Swap: 12GB total"
           echo "  - RAM Disk: 56GB total"
           echo "=========================================="
