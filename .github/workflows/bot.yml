@@ -31,65 +31,57 @@ jobs:
           df -h
           echo ""
           
-          # Cari storage terbesar
+          # Cari storage dengan space terbanyak
           STORAGE_PATH=""
           STORAGE_SIZE=""
           STORAGE_USED=""
           STORAGE_AVAIL=""
+          BEST_AVAIL=0
           
-          # Cek storage yang tersedia
-          for mount in $(df -h | awk 'NR>1 {print $6}'); do
-            SIZE=$(df -h "$mount" | awk 'NR==2 {print $2}')
-            AVAIL=$(df -h "$mount" | awk 'NR==2 {print $4}')
-            USED=$(df -h "$mount" | awk 'NR==2 {print $5}')
-            
-            # Ambil storage terbesar
-            if [[ "$SIZE" == *"G"* ]] || [[ "$SIZE" == *"T"* ]]; then
-              NUM_SIZE=$(echo "$SIZE" | sed 's/G//' | sed 's/T//' | sed 's/,/./')
-              if [[ -z "$STORAGE_PATH" ]] || [[ "$NUM_SIZE" -gt "$BEST_SIZE" ]] 2>/dev/null; then
-                STORAGE_PATH="$mount"
-                STORAGE_SIZE="$SIZE"
-                STORAGE_USED="$USED"
-                STORAGE_AVAIL="$AVAIL"
-                BEST_SIZE="$NUM_SIZE"
+          # Cek semua mount point
+          while IFS= read -r line; do
+            if [[ "$line" == /dev/* ]]; then
+              SIZE=$(echo "$line" | awk '{print $2}')
+              USED=$(echo "$line" | awk '{print $3}')
+              AVAIL=$(echo "$line" | awk '{print $4}')
+              USE_PERCENT=$(echo "$line" | awk '{print $5}')
+              MOUNT=$(echo "$line" | awk '{print $6}')
+              
+              # Konversi ke angka
+              AVAIL_NUM=$(echo "$AVAIL" | sed 's/G//' | sed 's/T//' | sed 's/M//' | sed 's/,/./' | cut -d. -f1)
+              
+              if [[ -n "$AVAIL_NUM" ]] && [[ "$AVAIL_NUM" =~ ^[0-9]+$ ]]; then
+                if [ "$AVAIL_NUM" -gt "$BEST_AVAIL" ]; then
+                  BEST_AVAIL="$AVAIL_NUM"
+                  STORAGE_PATH="$MOUNT"
+                  STORAGE_SIZE="$SIZE"
+                  STORAGE_USED="$USED ($USE_PERCENT)"
+                  STORAGE_AVAIL="$AVAIL"
+                fi
               fi
             fi
-          done
+          done <<< "$(df -h)"
           
           # Fallback ke root
           if [ -z "$STORAGE_PATH" ]; then
             STORAGE_PATH="/"
             STORAGE_SIZE=$(df -h / | awk 'NR==2 {print $2}')
-            STORAGE_USED=$(df -h / | awk 'NR==2 {print $5}')
+            STORAGE_USED=$(df -h / | awk 'NR==2 {print $3} ($5)')
             STORAGE_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
           fi
           
-          # Buat folder storage
-          STORAGE_DIR="/mnt/storage"
-          sudo mkdir -p "$STORAGE_DIR"
+          # Gunakan root sebagai storage (sudah ada)
+          STORAGE_DIR="$STORAGE_PATH"
           
-          # Gunakan storage terbesar untuk download/upload
-          sudo mount --bind "$STORAGE_PATH" "$STORAGE_DIR" 2>/dev/null || {
-            echo "⚠️ Gagal mount, menggunakan direktori lokal"
+          # Buat folder untuk download/upload di root
+          mkdir -p "$STORAGE_DIR/downloads" "$STORAGE_DIR/uploads" "$STORAGE_DIR/cache" "$STORAGE_DIR/data" "$STORAGE_DIR/sessions" "$STORAGE_DIR/users" "$STORAGE_DIR/logs" "$STORAGE_DIR/backup" "$STORAGE_DIR/output" "$STORAGE_DIR/temp" 2>/dev/null || {
+            # Jika gagal, pake current directory
             STORAGE_DIR="."
+            mkdir -p downloads uploads cache data sessions users logs backup output temp
           }
           
-          # Buat folder untuk download/upload
-          mkdir -p "$STORAGE_DIR/downloads" "$STORAGE_DIR/uploads" "$STORAGE_DIR/cache" "$STORAGE_DIR/data" "$STORAGE_DIR/sessions" "$STORAGE_DIR/users" "$STORAGE_DIR/logs" "$STORAGE_DIR/backup" "$STORAGE_DIR/output" "$STORAGE_DIR/temp"
-          
           # Set permission
-          chmod -R 777 "$STORAGE_DIR" 2>/dev/null || true
-          
-          # Link ke root
-          ln -sf "$STORAGE_DIR/downloads" ./downloads 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/uploads" ./uploads 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/cache" ./cache 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/data" ./data 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/sessions" ./sessions 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/users" ./users 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/logs" ./logs 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/backup" ./backup 2>/dev/null || true
-          ln -sf "$STORAGE_DIR/output" ./output 2>/dev/null || true
+          chmod -R 777 "$STORAGE_DIR/downloads" "$STORAGE_DIR/uploads" "$STORAGE_DIR/cache" "$STORAGE_DIR/data" "$STORAGE_DIR/sessions" "$STORAGE_DIR/users" "$STORAGE_DIR/logs" "$STORAGE_DIR/backup" "$STORAGE_DIR/output" "$STORAGE_DIR/temp" 2>/dev/null || true
           
           # Set environment
           echo "STORAGE_PATH=$STORAGE_DIR" >> $GITHUB_ENV
@@ -108,7 +100,7 @@ jobs:
           echo "  Available: $STORAGE_AVAIL"
           echo ""
           echo "📁 FOLDER STORAGE:"
-          ls -la "$STORAGE_DIR" 2>/dev/null || echo "  (empty)"
+          ls -la "$STORAGE_DIR" 2>/dev/null | head -20
           echo ""
           echo "✅ STORAGE AUTO-DETECTED UNTUK DOWNLOAD/UPLOAD!"
           echo "=========================================="
@@ -366,7 +358,7 @@ jobs:
             
             # Backup dulu
             echo "📦 Creating backup before restart..."
-            BACKUP_DIR="$STORAGE_DIR/backup/backup_$(date +%Y%m%d_%H%M%S)"
+            BACKUP_DIR="$STORAGE_DIR/backup_$(date +%Y%m%d_%H%M%S)"
             mkdir -p "$BACKUP_DIR"
             cp -r ./* "$BACKUP_DIR/" 2>/dev/null || true
             
@@ -382,6 +374,31 @@ jobs:
           fi
           
           echo "=========================================="
+
+      # ============================================
+      # RESTORE BACKUP DARI STORAGE
+      # ============================================
+      - name: Restore Backup dari Storage
+        run: |
+          echo "=== RESTORE DARI STORAGE ==="
+          
+          STORAGE_DIR="${{ env.STORAGE_PATH }}"
+          
+          # Cari backup terbaru
+          LATEST_BACKUP=$(ls -td "$STORAGE_DIR"/backup_* 2>/dev/null | head -1)
+          
+          if [ -n "$LATEST_BACKUP" ]; then
+            echo "✅ Backup ditemukan: $LATEST_BACKUP"
+            echo "📂 Restoring..."
+            cp -r "$LATEST_BACKUP"/* ./ 2>/dev/null || true
+            echo "✅ Restore selesai"
+          else
+            echo "ℹ️ Tidak ada backup"
+          fi
+          
+          echo ""
+          echo "=== ISI DIREKTORI ==="
+          ls -la
 
       # ============================================
       # SETUP FAKE VPS
@@ -528,18 +545,21 @@ jobs:
             STORAGE_PATH=""
             BEST_SIZE=0
             
-            for mount in $(df -h | awk 'NR>1 {print $6}'); do
-              SIZE=$(df -h "$mount" | awk 'NR==2 {print $2}')
-              if [[ "$SIZE" == *"G"* ]] || [[ "$SIZE" == *"T"* ]]; then
-                NUM_SIZE=$(echo "$SIZE" | sed 's/G//' | sed 's/T//' | sed 's/,/./' | cut -d. -f1)
-                if [ -z "$NUM_SIZE" ]; then continue; fi
-                if [ "$NUM_SIZE" -gt "$BEST_SIZE" ] 2>/dev/null; then
-                  STORAGE_PATH="$mount"
-                  BEST_SIZE="$NUM_SIZE"
-                  STORAGE_SIZE="$SIZE"
+            while IFS= read -r line; do
+              if [[ "$line" == /dev/* ]]; then
+                SIZE=$(echo "$line" | awk '{print $2}')
+                if [[ "$SIZE" == *"G"* ]] || [[ "$SIZE" == *"T"* ]]; then
+                  NUM_SIZE=$(echo "$SIZE" | sed 's/G//' | sed 's/T//' | sed 's/,/./' | cut -d. -f1)
+                  MOUNT=$(echo "$line" | awk '{print $6}')
+                  if [ -z "$NUM_SIZE" ]; then continue; fi
+                  if [ "$NUM_SIZE" -gt "$BEST_SIZE" ] 2>/dev/null; then
+                    STORAGE_PATH="$MOUNT"
+                    BEST_SIZE="$NUM_SIZE"
+                    STORAGE_SIZE="$SIZE"
+                  fi
                 fi
               fi
-            done
+            done <<< "$(df -h)"
             
             # Fallback ke root
             if [ -z "$STORAGE_PATH" ]; then
@@ -547,7 +567,7 @@ jobs:
               STORAGE_SIZE=$(df -h / | awk 'NR==2 {print $2}')
             fi
             
-            STORAGE_USED=$(df -h "$STORAGE_PATH" | awk 'NR==2 {print $5}')
+            STORAGE_USED=$(df -h "$STORAGE_PATH" | awk 'NR==2 {print $3} ($5)')
             STORAGE_AVAIL=$(df -h "$STORAGE_PATH" | awk 'NR==2 {print $4}')
             
             echo "  Storage Path: $STORAGE_PATH"
@@ -562,6 +582,9 @@ jobs:
           }
           
           detect_storage
+          
+          # Buat folder di storage
+          mkdir -p "$STORAGE_PATH/downloads" "$STORAGE_PATH/uploads" "$STORAGE_PATH/cache" "$STORAGE_PATH/data" "$STORAGE_PATH/sessions" "$STORAGE_PATH/users" "$STORAGE_PATH/logs" "$STORAGE_PATH/backup" "$STORAGE_PATH/output" "$STORAGE_PATH/temp" 2>/dev/null || true
           
           # ============================================
           # FUNCTION CHECK STORAGE
@@ -699,7 +722,7 @@ jobs:
             
             # Backup dulu
             echo "📦 Creating backup..."
-            BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
+            BACKUP_DIR="$STORAGE_PATH/backup_$(date +%Y%m%d_%H%M%S)"
             mkdir -p "$BACKUP_DIR"
             cp -r ./* "$BACKUP_DIR/" 2>/dev/null || true
             
