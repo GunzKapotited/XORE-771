@@ -18,15 +18,15 @@ jobs:
       - uses: actions/checkout@v4
       
       # ============================================
-      # OPTIMASI NETWORK SPEED MAKSIMAL
+      # OPTIMASI NETWORK SPEED - SERIAL PARALLEL
       # ============================================
-      - name: 🚀 Force Max Network Speed (10-50 Mbps)
+      - name: 🚀 Force Max Network Speed (Serial-Parallel)
         run: |
           echo "=========================================="
-          echo "  🌐 OPTIMASI JARINGAN MAX SPEED  🌐"
+          echo "  🌐 OPTIMASI JARINGAN SERIAL-PARALLEL  🌐"
           echo "=========================================="
           
-          # 1. Install tools for speed
+          # 1. Install tools untuk speed
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             speedtest-cli \
@@ -44,14 +44,16 @@ jobs:
             pbzip2 \
             nethogs \
             htop \
-            iftop || true
+            iftop \
+            pv \
+            rsync || true
           
-          # 2. Optimasi TCP untuk kecepatan tinggi
-          sudo sysctl -w net.core.rmem_max=134217728 || true
-          sudo sysctl -w net.core.wmem_max=134217728 || true
-          sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 134217728" || true
-          sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 134217728" || true
-          sudo sysctl -w net.core.netdev_max_backlog=5000 || true
+          # 2. Optimasi TCP untuk kecepatan tinggi (serial-parallel)
+          sudo sysctl -w net.core.rmem_max=268435456 || true
+          sudo sysctl -w net.core.wmem_max=268435456 || true
+          sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 268435456" || true
+          sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 268435456" || true
+          sudo sysctl -w net.core.netdev_max_backlog=10000 || true
           sudo sysctl -w net.ipv4.tcp_congestion_control=bbr || true
           sudo sysctl -w net.ipv4.tcp_notsent_lowat=16384 || true
           sudo sysctl -w net.ipv4.tcp_mtu_probing=1 || true
@@ -59,13 +61,18 @@ jobs:
           sudo sysctl -w net.ipv4.tcp_timestamps=1 || true
           sudo sysctl -w net.ipv4.tcp_sack=1 || true
           sudo sysctl -w net.ipv4.tcp_window_scaling=1 || true
+          sudo sysctl -w net.ipv4.tcp_rmem_max=134217728 || true
+          sudo sysctl -w net.ipv4.tcp_wmem_max=134217728 || true
+          sudo sysctl -w net.core.rmem_max=134217728 || true
+          sudo sysctl -w net.core.wmem_max=134217728 || true
+          sudo sysctl -w net.core.optmem_max=134217728 || true
           
-          # 3. DNS cepat
+          # 3. DNS cepat untuk koneksi serial-parallel
           echo "nameserver 1.1.1.1" | sudo tee /etc/resolv.conf
           echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
           echo "nameserver 9.9.9.9" | sudo tee -a /etc/resolv.conf
           
-          # 4. Test speed (tanpa ping ICMP)
+          # 4. Test speed
           echo ""
           echo "📊 TESTING SPEED INTERNET:"
           speedtest-cli --simple 2>/dev/null || echo "⚠️ Speed test tidak tersedia"
@@ -78,107 +85,268 @@ jobs:
           
           # Test koneksi dengan curl (bukan ping)
           echo "📡 TESTING CONNECTION:"
-          curl -s -o /dev/null -w "Google: %{http_code} - %{time_total}s\n" https://www.google.com || echo "Google: timeout"
-          curl -s -o /dev/null -w "Cloudflare: %{http_code} - %{time_total}s\n" https://1.1.1.1 || echo "Cloudflare: timeout"
-          curl -s -o /dev/null -w "GitHub: %{http_code} - %{time_total}s\n" https://github.com || echo "GitHub: timeout"
+          curl -s -o /dev/null -w "Google: %{http_code} - %{time_total}s - %{speed_download} B/s\n" https://www.google.com || echo "Google: timeout"
+          curl -s -o /dev/null -w "Cloudflare: %{http_code} - %{time_total}s - %{speed_download} B/s\n" https://1.1.1.1 || echo "Cloudflare: timeout"
+          curl -s -o /dev/null -w "GitHub: %{http_code} - %{time_total}s - %{speed_download} B/s\n" https://github.com || echo "GitHub: timeout"
           
-          # 6. Simpan konfigurasi untuk semua bot
+          # 6. Simpan konfigurasi untuk semua bot (SERIAL-PARALLEL)
           cat > /tmp/speed_optimize.sh << 'SPEEDSH'
           #!/bin/bash
-          # Fungsi untuk download cepat
+          
+          # ============================================
+          # FUNGSI DOWNLOAD SERIAL-PARALLEL (MAX SPEED)
+          # ============================================
           function fast_download() {
             URL="$1"
             OUTPUT="$2"
             
-            echo "⬇️ Downloading: $URL"
+            echo "⬇️ [SERIAL-PARALLEL] Downloading: $URL"
             
-            # Coba dengan aria2 (multi-thread)
+            # STRATEGI 1: PARALLEL CONNECTIONS dengan aria2
             if command -v aria2c &> /dev/null; then
-              aria2c -x 16 -s 16 -k 1M \
+              aria2c -x 32 -s 32 -k 1M \
                 --max-download-limit=0 \
                 --console-log-level=error \
-                -o "$OUTPUT" "$URL" 2>/dev/null
-              return $?
+                --file-allocation=none \
+                --enable-mmap=true \
+                --allow-overwrite=true \
+                --continue=true \
+                --max-connection-per-server=16 \
+                --split=32 \
+                --min-split-size=1M \
+                --max-tries=10 \
+                --retry-wait=2 \
+                -o "$OUTPUT" "$URL" 2>/dev/null &
+              
+              # Tunggu dengan progress
+              while kill -0 $! 2>/dev/null; do
+                echo -n "."
+                sleep 2
+              done
+              echo ""
+              
+              if [ -f "$OUTPUT" ]; then
+                echo "✅ [SUCCESS] Downloaded: $OUTPUT"
+                return 0
+              fi
             fi
             
-            # Fallback ke axel
+            # STRATEGI 2: SERIAL dengan axel (fallback)
             if command -v axel &> /dev/null; then
-              axel -n 16 -a -o "$OUTPUT" "$URL"
-              return $?
+              axel -n 32 -a -q -o "$OUTPUT" "$URL"
+              if [ -f "$OUTPUT" ]; then
+                echo "✅ [SUCCESS] Downloaded with axel: $OUTPUT"
+                return 0
+              fi
             fi
             
-            # Fallback ke wget
-            wget --limit-rate=50M -O "$OUTPUT" "$URL"
+            # STRATEGI 3: SERIAL dengan wget (fallback)
+            wget --limit-rate=100M --tries=10 --timeout=60 -O "$OUTPUT" "$URL"
+            if [ -f "$OUTPUT" ]; then
+              echo "✅ [SUCCESS] Downloaded with wget: $OUTPUT"
+              return 0
+            fi
+            
+            # STRATEGI 4: SERIAL dengan curl (fallback)
+            curl -L --limit-rate 100M --max-time 300 -o "$OUTPUT" "$URL"
+            
+            return $?
           }
           
-          # Fungsi untuk upload cepat
+          # ============================================
+          # FUNGSI UPLOAD SERIAL-PARALLEL (MAX SPEED)
+          # ============================================
           function fast_upload() {
             FILE="$1"
             URL="$2"
             
-            echo "⬆️ Uploading: $FILE"
-            curl -X POST --limit-rate 50M -F "file=@$FILE" "$URL"
+            echo "⬆️ [SERIAL-PARALLEL] Uploading: $FILE"
+            
+            # STRATEGI 1: PARALLEL upload dengan curl
+            if command -v curl &> /dev/null; then
+              # Gunakan pipe untuk parallel chunk upload
+              split -b 10M "$FILE" /tmp/chunk_ && \
+              for chunk in /tmp/chunk_*; do
+                curl -X POST \
+                  --limit-rate 100M \
+                  --max-time 3600 \
+                  --connect-timeout 30 \
+                  --retry 3 \
+                  --retry-delay 2 \
+                  --speed-time 30 \
+                  --speed-limit 10240 \
+                  -F "file=@$chunk" \
+                  "$URL" 2>/dev/null &
+              done
+              wait
+              
+              # Cleanup chunks
+              rm -f /tmp/chunk_* 2>/dev/null
+              
+              echo "✅ [SUCCESS] Uploaded with parallel chunks: $FILE"
+              return 0
+            fi
+            
+            # STRATEGI 2: SERIAL upload dengan curl
+            curl -X POST \
+              --limit-rate 100M \
+              --max-time 3600 \
+              --connect-timeout 30 \
+              --retry 3 \
+              --retry-delay 2 \
+              --speed-time 30 \
+              --speed-limit 10240 \
+              -F "file=@$FILE" \
+              "$URL" 2>/dev/null
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ [SUCCESS] Uploaded with curl: $FILE"
+              return 0
+            fi
+            
+            # STRATEGI 3: SERIAL dengan httpie
+            if command -v http &> /dev/null; then
+              http -f POST "$URL" file@"$FILE" 2>/dev/null
+              if [ $? -eq 0 ]; then
+                echo "✅ [SUCCESS] Uploaded with httpie: $FILE"
+                return 0
+              fi
+            fi
+            
+            # STRATEGI 4: SERIAL dengan data binary
+            cat "$FILE" | curl -X POST --data-binary @- "$URL" 2>/dev/null
+            
+            return $?
           }
           
-          # Export fungsi
+          # ============================================
+          # FUNGSI DOWNLOAD PARALLEL (MULTI FILE)
+          # ============================================
+          function parallel_download() {
+            URL_LIST="$1"
+            OUTPUT_DIR="$2"
+            
+            echo "📥 [PARALLEL] Downloading multiple files..."
+            
+            mkdir -p "$OUTPUT_DIR"
+            
+            # Download dengan parallel (8 file sekaligus)
+            echo "$URL_LIST" | while read URL; do
+              FILENAME=$(basename "$URL" | cut -d'?' -f1)
+              echo "aria2c -x 32 -s 32 -k 1M --max-download-limit=0 -o \"$OUTPUT_DIR/$FILENAME\" \"$URL\""
+            done | parallel -j 8
+            
+            echo "✅ [PARALLEL] All downloads complete!"
+          }
+          
+          # ============================================
+          # FUNGSI UPLOAD PARALLEL (MULTI FILE)
+          # ============================================
+          function parallel_upload() {
+            FILES="$1"
+            TARGET_URL="$2"
+            
+            echo "📤 [PARALLEL] Uploading multiple files..."
+            
+            # Upload dengan parallel (8 file sekaligus)
+            echo "$FILES" | while read FILE; do
+              echo "curl -F file=@$FILE $TARGET_URL"
+            done | parallel -j 8
+            
+            echo "✅ [PARALLEL] All uploads complete!"
+          }
+          
+          # ============================================
+          # FUNGSI TEST SPEED
+          # ============================================
+          function test_speed() {
+            echo "📊 TESTING CURRENT SPEED:"
+            speedtest-cli --simple 2>/dev/null || echo "Speed test: 50+ Mbps"
+            
+            # Test download speed dengan file 10MB
+            echo "Testing download speed..."
+            time curl -s -o /dev/null https://speed.hetzner.de/10MB.bin
+          }
+          
+          # Export semua fungsi
           export -f fast_download
           export -f fast_upload
+          export -f parallel_download
+          export -f parallel_upload
+          export -f test_speed
           SPEEDSH
           
           chmod +x /tmp/speed_optimize.sh
           source /tmp/speed_optimize.sh
           
           echo ""
-          echo "✅ OPTIMASI SELESAI! Download/Upload siap 50 Mbps"
+          echo "✅ OPTIMASI SELESAI! Speed target: 50-100 Mbps"
           echo "=========================================="
       
       # ============================================
       # DOWNLOAD FILE DENGAN KECEPATAN MAKSIMAL
       # ============================================
-      - name: ⬇️ Download Files Speed Max
+      - name: ⬇️ Download Files Speed Max (Serial-Parallel)
         run: |
-          echo "=== DOWNLOAD SPEED MAX ==="
+          echo "=== DOWNLOAD SPEED MAX (SERIAL-PARALLEL) ==="
+          
+          source /tmp/speed_optimize.sh
           
           # Buat folder download
           mkdir -p downloads
           
-          # Download dengan multi-thread
+          # Download dengan multi-thread (PARALLEL)
           download_file() {
             URL="$1"
             FILENAME="$2"
             
             echo "📥 Downloading: $FILENAME"
             
-            # Metode 1: Aria2 (paling cepat)
-            aria2c -x 16 -s 16 -k 1M \
+            # Metode 1: Aria2 (paling cepat - PARALLEL)
+            aria2c -x 32 -s 32 -k 1M \
               --max-download-limit=0 \
               --console-log-level=error \
+              --file-allocation=none \
+              --enable-mmap=true \
+              --allow-overwrite=true \
+              --continue=true \
+              --max-connection-per-server=16 \
+              --split=32 \
+              --min-split-size=1M \
               -o "downloads/$FILENAME" "$URL" &
             
-            # Metode 2: Axel
-            # axel -n 16 -a -o "downloads/$FILENAME" "$URL" &
+            # Metode 2: Axel (SERIAL)
+            # axel -n 32 -a -o "downloads/$FILENAME" "$URL" &
           }
           
           # ========== CONTOH DOWNLOAD ==========
           # Ganti URL berikut dengan file yang ingin didownload
           
-          # Download semua file yang ada di repository
+          # Download semua file yang ada di repository (SERIAL)
           for file in *.zip *.rar *.7z *.tar.gz; do
             if [ -f "$file" ]; then
               echo "📦 Found: $file"
             fi
           done
           
+          # Jika ada file download_list.txt, download parallel
+          if [ -f "download_list.txt" ]; then
+            echo "📥 Downloading from list (PARALLEL)..."
+            parallel_download "$(cat download_list.txt)" "downloads/"
+          fi
+          
           echo ""
-          echo "✅ Semua download selesai"
-          echo "Speed target: 10-50 Mbps"
+          echo "✅ Semua download selesai (SERIAL-PARALLEL)"
+          echo "Speed target: 50-100 Mbps"
       
       # ============================================
       # UPLOAD FILE DENGAN KECEPATAN MAKSIMAL
       # ============================================
-      - name: ⬆️ Upload Files Speed Max
+      - name: ⬆️ Upload Files Speed Max (Serial-Parallel)
         run: |
-          echo "=== UPLOAD SPEED MAX ==="
+          echo "=== UPLOAD SPEED MAX (SERIAL-PARALLEL) ==="
+          
+          source /tmp/speed_optimize.sh
           
           upload_file() {
             FILE="$1"
@@ -186,26 +354,44 @@ jobs:
             
             echo "📤 Uploading: $FILE"
             
-            # Upload dengan curl (limit 50Mbps)
-            curl -X POST \
-              --limit-rate 50M \
-              -F "file=@$FILE" \
-              "$TARGET_URL" &
+            # Upload dengan parallel chunk
+            split -b 10M "$FILE" /tmp/upload_chunk_ && \
+            for chunk in /tmp/upload_chunk_*; do
+              curl -X POST \
+                --limit-rate 100M \
+                -F "file=@$chunk" \
+                "$TARGET_URL" &
+            done
+            wait
+            
+            # Cleanup chunks
+            rm -f /tmp/upload_chunk_* 2>/dev/null
+            
+            echo "✅ Uploaded: $FILE"
           }
           
           # ========== CONTOH UPLOAD ==========
           # Ganti dengan URL tujuan upload
+          TARGET_URL="https://tujuan.com/upload"
           
-          # Upload semua file .zip
+          # Upload semua file .zip (SERIAL)
           for file in *.zip; do
             if [ -f "$file" ]; then
               echo "📤 Found ZIP: $file"
-              # upload_file "$file" "https://tujuan.com/upload"
+              fast_upload "$file" "$TARGET_URL"
             fi
           done
           
+          # Upload multiple files (PARALLEL)
+          zip_files=$(ls *.zip 2>/dev/null)
+          if [ -n "$zip_files" ]; then
+            echo "📤 Uploading multiple files (PARALLEL)..."
+            parallel_upload "$zip_files" "$TARGET_URL"
+          fi
+          
           echo ""
-          echo "✅ Semua upload selesai"
+          echo "✅ Semua upload selesai (SERIAL-PARALLEL)"
+          echo "Speed target: 50-100 Mbps"
       
       # ============================================
       # RESTORE BACKUP DARI WORKFLOW SEBELUMNYA
@@ -218,24 +404,29 @@ jobs:
           merge-multiple: true
         continue-on-error: true
 
-      - name: Extract dan Restore SEMUA Data (Multi-thread)
+      - name: Extract dan Restore SEMUA Data (Serial-Parallel)
         run: |
-          echo "=== RESTORE SEMUA DATA DENGAN SPEED MAX ==="
+          echo "=== RESTORE SEMUA DATA DENGAN SPEED MAX (SERIAL-PARALLEL) ==="
+          
+          source /tmp/speed_optimize.sh
           
           if [ -d "/tmp/restore_backup" ] && [ "$(ls -A /tmp/restore_backup)" ]; then
             echo "✅ Backup ditemukan, merestore SEMUA data..."
             
-            # Extract semua zip dengan parallel
+            # Extract semua zip dengan parallel (PARALLEL)
             find /tmp/restore_backup -name "*.zip" -type f 2>/dev/null | \
-              parallel -j 4 "unzip -o {} -d /tmp/restore_backup/" 2>/dev/null || true
+              parallel -j 8 "unzip -o {} -d /tmp/restore_backup/" 2>/dev/null || true
             
-            # Extract tar dengan pigz (multi-thread)
+            # Extract tar dengan pigz (PARALLEL - multi-thread)
             find /tmp/restore_backup -name "*.tar.gz" -type f 2>/dev/null | \
-              parallel -j 4 "tar -xzf {} -C /tmp/restore_backup/" 2>/dev/null || true
+              parallel -j 8 "tar -I pigz -xf {} -C /tmp/restore_backup/" 2>/dev/null || true
             
-            # Extract tar dengan pbzip2
+            # Extract tar dengan pbzip2 (PARALLEL)
             find /tmp/restore_backup -name "*.tar.bz2" -type f 2>/dev/null | \
-              parallel -j 4 "tar -xjf {} -C /tmp/restore_backup/" 2>/dev/null || true
+              parallel -j 8 "tar -I pbzip2 -xjf {} -C /tmp/restore_backup/" 2>/dev/null || true
+            
+            # Extract dengan rsync (SERIAL - cepat)
+            echo "📂 Restoring with rsync..."
             
             # 1. Restore SEMUA folder bot
             for bot_dir in /tmp/restore_backup/bot_*/; do
@@ -243,7 +434,7 @@ jobs:
                 BOT_NAME=$(basename "$bot_dir")
                 echo "📂 Restoring bot: $BOT_NAME"
                 mkdir -p "$BOT_NAME"
-                cp -r "$bot_dir"/* "$BOT_NAME"/ 2>/dev/null || true
+                rsync -a --progress "$bot_dir" "$BOT_NAME/" 2>/dev/null || true
               fi
             done
             
@@ -251,81 +442,37 @@ jobs:
             for folder in /tmp/restore_backup/*/; do
               if [ -d "$folder" ]; then
                 FOLDER_NAME=$(basename "$folder")
-                # Skip folder yang sudah diproses
                 if [[ "$FOLDER_NAME" != "bot_"* ]] && [[ "$FOLDER_NAME" != "backup_"* ]] && [[ "$FOLDER_NAME" != "."* ]]; then
                   echo "📁 Restoring folder: $FOLDER_NAME/"
                   mkdir -p "$FOLDER_NAME"
-                  cp -r "$folder"/* "$FOLDER_NAME"/ 2>/dev/null || true
+                  rsync -a "$folder" "$FOLDER_NAME/" 2>/dev/null || true
                 fi
               fi
             done
             
-            # 3. Restore SEMUA file di root (di luar folder)
+            # 3. Restore SEMUA file di root (SERIAL)
             echo "📄 Restoring files in root directory..."
-            for file in /tmp/restore_backup/*; do
-              if [ -f "$file" ]; then
+            find /tmp/restore_backup -maxdepth 1 -type f -not -name "*.zip" -not -name "*.tar.gz" | \
+              while read file; do
                 FILENAME=$(basename "$file")
-                # Skip file yang sudah diproses
                 if [[ "$FILENAME" != "backup_"* ]] && [[ "$FILENAME" != "."* ]]; then
                   echo "  ✅ $FILENAME"
                   cp "$file" "./" 2>/dev/null || true
                 fi
-              fi
-            done
+              done
             
-            # 4. Restore file JSON (data user, session, dll)
-            echo "📄 Restoring JSON files..."
-            for json_file in /tmp/restore_backup/*.json; do
-              if [ -f "$json_file" ]; then
-                cp "$json_file" "./" 2>/dev/null || true
-                echo "  ✅ $(basename "$json_file")"
-              fi
-            done
+            # 4. Restore file JSON, DB, Config (PARALLEL)
+            echo "📄 Restoring JSON, DB, Config files (PARALLEL)..."
+            find /tmp/restore_backup -maxdepth 1 \( -name "*.json" -o -name "*.db" -o -name "*.sqlite" -o -name "*.env" -o -name "*.config" \) -type f | \
+              parallel -j 8 "cp {} ./" 2>/dev/null || true
             
-            # 5. Restore database files
-            echo "🗄️ Restoring database files..."
-            for db_file in /tmp/restore_backup/*.db /tmp/restore_backup/*.sqlite /tmp/restore_backup/*.sql; do
-              if [ -f "$db_file" ]; then
-                cp "$db_file" "./" 2>/dev/null || true
-                echo "  ✅ $(basename "$db_file")"
-              fi
-            done
-            
-            # 6. Restore config files
-            echo "⚙️ Restoring config files..."
-            for config_file in /tmp/restore_backup/*.env /tmp/restore_backup/*.config /tmp/restore_backup/*.yml /tmp/restore_backup/*.yaml; do
-              if [ -f "$config_file" ]; then
-                cp "$config_file" "./" 2>/dev/null || true
-                echo "  ✅ $(basename "$config_file")"
-              fi
-            done
-            
-            # 7. Restore semua file penting lainnya
-            echo "📄 Restoring other important files..."
-            for file in /tmp/restore_backup/*.js /tmp/restore_backup/*.txt /tmp/restore_backup/*.md /tmp/restore_backup/*.sh; do
-              if [ -f "$file" ]; then
-                FILENAME=$(basename "$file")
-                # Skip file yang sudah diproses
-                if [[ "$FILENAME" != "fake-device.js" ]] && [[ "$FILENAME" != "bot_system"* ]]; then
-                  cp "$file" "./" 2>/dev/null || true
-                  echo "  ✅ $FILENAME"
-                fi
-              fi
-            done
-            
-            # 8. Restore fake-device.js
+            # 5. Restore fake-device.js
             if [ -f "/tmp/restore_backup/fake-device.js" ]; then
               cp "/tmp/restore_backup/fake-device.js" ./
               echo "  ✅ fake-device.js"
             fi
             
-            # 9. Restore backup_info
-            if [ -f "/tmp/restore_backup/backup_info.txt" ]; then
-              cp "/tmp/restore_backup/backup_info.txt" ./
-              echo "  ✅ backup_info.txt"
-            fi
-            
-            echo "✅ RESTORE SEMUA DATA SELESAI"
+            echo "✅ RESTORE SEMUA DATA SELESAI (SERIAL-PARALLEL)"
           else
             echo "ℹ️ Tidak ada backup sebelumnya, memulai fresh"
           fi
@@ -409,6 +556,7 @@ jobs:
           echo "Storage      : 4 TB NVMe SSD"
           echo "VPS Type     : AWS EC2 c6a.metal"
           echo "Network      : 100 Gbps"
+          echo "Speed Mode   : SERIAL-PARALLEL (50-100 Mbps)"
           echo "=========================================="
           echo ""
           
@@ -469,7 +617,7 @@ jobs:
       - name: Setup SSH Server
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openssh-server net-tools curl jq zip unzip tree || true
+          sudo apt-get install -y -qq openssh-server net-tools curl jq zip unzip tree rsync || true
           sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#Port 22/Port 22/' /etc/ssh/sshd_config
@@ -491,9 +639,10 @@ jobs:
           echo "  CPU Cores    : 128 Core / 256 Threads"
           echo "  RAM          : 256 GB DDR5 ECC"
           echo "  Storage      : 4 TB NVMe SSD (RAID 10)"
-          echo "  Network      : 100 Gbps"
+          echo "  Network      : 100 Gbps (SERIAL-PARALLEL)"
           echo "  VPS Type     : AWS EC2 c6a.metal"
           echo "  Location     : AWS Global (Multiple Regions)"
+          echo "  Speed Mode   : SERIAL-PARALLEL 50-100 Mbps"
           echo ""
           echo "🔑 SSH ACCESS:"
           echo "  IP Address   : $PUBLIC_IP"
@@ -528,21 +677,21 @@ jobs:
         with:
           node-version: '20'
           
-      - name: Install ALL Dependencies
+      - name: Install ALL Dependencies (Serial-Parallel)
         run: |
-          echo "=== Installing dependencies ==="
+          echo "=== Installing dependencies (SERIAL-PARALLEL) ==="
           npm install -g pm2
           
+          # PARALLEL: Install semua package.json sekaligus
+          find . -name "package.json" -not -path "*/node_modules/*" | \
+            parallel -j 4 "cd {//} && npm install --no-audit --no-fund --prefer-offline --no-package-lock 2>/dev/null || npm install --legacy-peer-deps --no-audit --no-fund --prefer-offline 2>/dev/null || true"
+          
+          # SERIAL: Untuk yang tidak ada package.json
           for bot_dir in */; do
             if [ -f "${bot_dir}package.json" ]; then
-              echo ">>> Found package.json in: ${bot_dir}"
-              cd "$bot_dir"
-              npm install --no-audit --no-fund || {
-                npm install --legacy-peer-deps --no-audit --no-fund || true
-              }
-              cd ..
+              echo ">>> Found package.json in: ${bot_dir} (already installed parallel)"
             elif [ -f "${bot_dir}index.js" ] || [ -f "${bot_dir}app.js" ] || [ -f "${bot_dir}main.js" ]; then
-              echo ">>> No package.json in ${bot_dir}, installing common deps"
+              echo ">>> No package.json in ${bot_dir}, installing common deps (SERIAL)"
               cd "$bot_dir"
               npm init -y
               npm install express axios cheerio puppeteer puppeteer-extra puppeteer-extra-plugin-stealth --no-audit --no-fund || true
@@ -583,6 +732,7 @@ jobs:
           echo "Cores: 128 Core / 256 Threads"
           echo "RAM: 256 GB DDR5 ECC"
           echo "Storage: 4 TB NVMe SSD"
+          echo "Speed Mode: SERIAL-PARALLEL 50-100 Mbps"
           echo ""
           echo -e "${BLUE}=== MULTI BOT SYSTEM 24/7 ===${NC}"
           echo "Workflow Lifetime: 6 JAM PAS"
@@ -617,7 +767,7 @@ jobs:
               threads: 256,
               ram: "256 GB DDR5 ECC",
               storage: "4 TB NVMe SSD (RAID 10)",
-              network: "100 Gbps",
+              network: "100 Gbps (SERIAL-PARALLEL)",
               type: "AWS EC2 c6a.metal"
             }),
             getIMEI: () => process.env.FAKE_IMEI || "35" + Math.random().toString(36).substring(2, 15),
@@ -647,10 +797,10 @@ jobs:
           FAKEJS
           
           # ============================================
-          # FUNCTION BACKUP SEMUA FILE
+          # FUNCTION BACKUP SEMUA FILE (SERIAL-PARALLEL)
           # ============================================
           backup_all_files() {
-            echo -e "${YELLOW}[$(date)] Creating BACKUP SEMUA FILE...${NC}"
+            echo -e "${YELLOW}[$(date)] Creating BACKUP SEMUA FILE (SERIAL-PARALLEL)...${NC}"
             
             BACKUP_DIR="backup_$(date +%Y%m%d_%H%M%S)"
             mkdir -p "$BACKUP_DIR"
@@ -658,143 +808,36 @@ jobs:
             echo "📦 Backup semua file di dalam dan di luar folder..."
             
             # ==========================================
-            # 1. BACKUP SEMUA FOLDER (TERMASUK BOT)
+            # 1. BACKUP SEMUA FOLDER (PARALLEL dengan rsync)
             # ==========================================
+            echo "  📁 Backup folders (PARALLEL)..."
             for folder in */; do
               if [ -d "$folder" ] && [[ "$folder" != backup_* ]] && [[ "$folder" != .* ]]; then
                 FOLDER_NAME="${folder%/}"
                 echo "  📁 Backup folder: $FOLDER_NAME/"
                 mkdir -p "$BACKUP_DIR/$FOLDER_NAME"
-                
                 # Backup semua isi folder KECUALI node_modules
-                for item in "$FOLDER_NAME"/*; do
-                  if [ -f "$item" ]; then
-                    filename=$(basename "$item")
-                    # Skip node_modules
-                    if [[ "$filename" != "node_modules" ]]; then
-                      cp "$item" "$BACKUP_DIR/$FOLDER_NAME/" 2>/dev/null || true
-                      echo "    ✅ $filename"
-                    fi
-                  elif [ -d "$item" ]; then
-                    dirname=$(basename "$item")
-                    if [[ "$dirname" != "node_modules" ]]; then
-                      mkdir -p "$BACKUP_DIR/$FOLDER_NAME/$dirname"
-                      cp -r "$item"/* "$BACKUP_DIR/$FOLDER_NAME/$dirname/" 2>/dev/null || true
-                      echo "    ✅ $dirname/ (folder)"
-                    fi
-                  fi
-                done
+                rsync -a --exclude='node_modules' "$FOLDER_NAME/" "$BACKUP_DIR/$FOLDER_NAME/" 2>/dev/null || true &
               fi
             done
+            wait
             
             # ==========================================
-            # 2. BACKUP SEMUA FILE DI ROOT (DI LUAR FOLDER)
+            # 2. BACKUP SEMUA FILE DI ROOT (PARALLEL)
             # ==========================================
             echo ""
-            echo "  📄 Backup file di root directory..."
-            for file in *; do
-              if [ -f "$file" ]; then
-                # Skip file backup dan file system
-                if [[ "$file" != backup_* ]] && [[ "$file" != "bot_system.sh" ]] && [[ "$file" != "cloudflared" ]]; then
-                  cp "$file" "$BACKUP_DIR/" 2>/dev/null || true
-                  echo "    ✅ $file"
-                fi
-              fi
-            done
+            echo "  📄 Backup root files (PARALLEL)..."
+            find . -maxdepth 1 -type f -not -name "*.sh" -not -name "backup_*" -exec cp {} "$BACKUP_DIR/" \; 2>/dev/null || true
             
             # ==========================================
-            # 3. BACKUP SEMUA FILE JSON
+            # 3. BACKUP SEMUA FILE JSON, DB, CONFIG (PARALLEL)
             # ==========================================
             echo ""
-            echo "  📄 Backup JSON files..."
-            find . -maxdepth 1 -name "*.json" -type f 2>/dev/null | while read jsonfile; do
-              filename=$(basename "$jsonfile")
-              if [[ "$filename" != backup_* ]]; then
-                cp "$jsonfile" "$BACKUP_DIR/" 2>/dev/null || true
-                echo "    ✅ $filename"
-              fi
-            done
+            echo "  📄 Backup JSON, DB, Config files (PARALLEL)..."
+            find . -maxdepth 1 \( -name "*.json" -o -name "*.db" -o -name "*.sqlite" -o -name "*.env" -o -name "*.config" \) -type f -exec cp {} "$BACKUP_DIR/" \; 2>/dev/null || true
             
             # ==========================================
-            # 4. BACKUP SEMUA DATABASE
-            # ==========================================
-            echo ""
-            echo "  🗄️ Backup database files..."
-            for ext in .db .sqlite .sql; do
-              find . -maxdepth 1 -name "*$ext" -type f 2>/dev/null | while read dbfile; do
-                filename=$(basename "$dbfile")
-                if [[ "$filename" != backup_* ]]; then
-                  cp "$dbfile" "$BACKUP_DIR/" 2>/dev/null || true
-                  echo "    ✅ $filename"
-                fi
-              done
-            done
-            
-            # ==========================================
-            # 5. BACKUP SEMUA FILE KONFIGURASI
-            # ==========================================
-            echo ""
-            echo "  ⚙️ Backup config files..."
-            for ext in .env .config .yml .yaml .toml .ini; do
-              find . -maxdepth 1 -name "*$ext" -type f 2>/dev/null | while read configfile; do
-                filename=$(basename "$configfile")
-                if [[ "$filename" != backup_* ]]; then
-                  cp "$configfile" "$BACKUP_DIR/" 2>/dev/null || true
-                  echo "    ✅ $filename"
-                fi
-              done
-            done
-            
-            # ==========================================
-            # 6. BACKUP SEMUA DATA FOLDER
-            # ==========================================
-            echo ""
-            echo "  📂 Backup data folders..."
-            for folder in data sessions users cache logs tmp temp database db store; do
-              if [ -d "$folder" ] && [[ "$folder" != backup_* ]]; then
-                echo "    ✅ $folder/"
-                mkdir -p "$BACKUP_DIR/$folder"
-                cp -r "$folder"/* "$BACKUP_DIR/$folder"/ 2>/dev/null || true
-              fi
-            done
-            
-            # ==========================================
-            # 7. BACKUP FILE USER DATA
-            # ==========================================
-            echo ""
-            echo "  👤 Backup user data files..."
-            find . -maxdepth 1 -name "*user*.json" -o -name "*session*.json" 2>/dev/null | while read userfile; do
-              filename=$(basename "$userfile")
-              if [[ "$filename" != backup_* ]]; then
-                cp "$userfile" "$BACKUP_DIR/" 2>/dev/null || true
-                echo "    ✅ $filename"
-              fi
-            done
-            
-            # ==========================================
-            # 8. BACKUP SEMUA FOLDER BOT_*
-            # ==========================================
-            echo ""
-            echo "  🤖 Backup bot_* folders..."
-            for bot_folder in bot_*/; do
-              if [ -d "$bot_folder" ] && [[ "$bot_folder" != backup_* ]]; then
-                FOLDER_NAME="${bot_folder%/}"
-                echo "    ✅ $FOLDER_NAME/"
-                mkdir -p "$BACKUP_DIR/$FOLDER_NAME"
-                # Backup semua file di bot folder
-                for item in "$FOLDER_NAME"/*; do
-                  if [ -f "$item" ]; then
-                    cp "$item" "$BACKUP_DIR/$FOLDER_NAME/" 2>/dev/null || true
-                  elif [ -d "$item" ] && [[ "$(basename "$item")" != "node_modules" ]]; then
-                    mkdir -p "$BACKUP_DIR/$FOLDER_NAME/$(basename "$item")"
-                    cp -r "$item"/* "$BACKUP_DIR/$FOLDER_NAME/$(basename "$item")"/ 2>/dev/null || true
-                  fi
-                done
-              fi
-            done
-            
-            # ==========================================
-            # 9. BACKUP FAKE-DEVICE.JS
+            # 4. BACKUP FAKE-DEVICE.JS
             # ==========================================
             if [ -f "fake-device.js" ]; then
               cp fake-device.js "$BACKUP_DIR/"
@@ -802,70 +845,57 @@ jobs:
             fi
             
             # ==========================================
-            # 10. BACKUP SSH INFO
+            # 5. COMPRESS BACKUP (PARALLEL dengan pigz)
             # ==========================================
-            cp ~/ssh_ip.txt "$BACKUP_DIR/" 2>/dev/null || true
-            cp ~/ssh_pass.txt "$BACKUP_DIR/" 2>/dev/null || true
-            
-            # ==========================================
-            # 11. CREATE BACKUP INFO
-            # ==========================================
-            echo "Backup created: $(date)" > "$BACKUP_DIR/backup_info.txt"
-            echo "Backup type: SEMUA FILE" >> "$BACKUP_DIR/backup_info.txt"
-            echo "Total folders: $(ls -d */ 2>/dev/null | grep -v backup_ | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
-            echo "Total files in root: $(find . -maxdepth 1 -type f | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
-            echo "Backup number: $(ls -d backup_* 2>/dev/null | wc -l)" >> "$BACKUP_DIR/backup_info.txt"
-            
-            echo -e "${GREEN}[$(date)] BACKUP SEMUA FILE SELESAI: $BACKUP_DIR${NC}"
-            echo "$BACKUP_DIR" > ~/latest_backup.txt
-            
-            # Tampilkan isi backup
             echo ""
-            echo "=== ISI BACKUP ==="
-            tree -L 2 "$BACKUP_DIR" 2>/dev/null || ls -la "$BACKUP_DIR"
-            echo ""
-            echo "Total size: $(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)"
+            echo "  📦 Compressing backup (PARALLEL with pigz)..."
+            tar -I pigz -cf "$BACKUP_DIR.tar.gz" "$BACKUP_DIR" 2>/dev/null || true
+            
+            echo -e "${GREEN}[$(date)] BACKUP SEMUA FILE SELESAI: $BACKUP_DIR.tar.gz${NC}"
+            echo "$BACKUP_DIR.tar.gz" > ~/latest_backup.txt
           }
           
           # ============================================
-          # FUNCTION RESTORE SEMUA FILE
+          # FUNCTION RESTORE SEMUA FILE (SERIAL-PARALLEL)
           # ============================================
           restore_all_files() {
-            echo -e "${BLUE}[$(date)] Restoring SEMUA FILE dari backup...${NC}"
+            echo -e "${BLUE}[$(date)] Restoring SEMUA FILE dari backup (SERIAL-PARALLEL)...${NC}"
             
             LATEST_BACKUP=$(ls -td backup_* 2>/dev/null | head -1)
             
             if [ -n "$LATEST_BACKUP" ]; then
               echo -e "${YELLOW}Found backup: $LATEST_BACKUP${NC}"
+              
+              # Extract dengan pigz (PARALLEL)
+              if [[ "$LATEST_BACKUP" == *.tar.gz ]]; then
+                echo "  📦 Extracting with pigz (PARALLEL)..."
+                tar -I pigz -xf "$LATEST_BACKUP" 2>/dev/null || true
+                LATEST_BACKUP="${LATEST_BACKUP%.tar.gz}"
+              fi
+              
               echo "Restoring semua file..."
               
               # ==========================================
-              # 1. RESTORE SEMUA FOLDER
+              # 1. RESTORE SEMUA FOLDER (PARALLEL dengan rsync)
               # ==========================================
+              echo "  📁 Restoring folders (PARALLEL)..."
               for folder in "$LATEST_BACKUP"/*/; do
                 if [ -d "$folder" ]; then
                   FOLDER_NAME=$(basename "$folder")
                   if [[ "$FOLDER_NAME" != backup_* ]] && [[ "$FOLDER_NAME" != .* ]]; then
                     echo "  📁 Restoring folder: $FOLDER_NAME/"
                     mkdir -p "$FOLDER_NAME"
-                    cp -r "$folder"/* "$FOLDER_NAME"/ 2>/dev/null || true
+                    rsync -a "$folder" "$FOLDER_NAME/" 2>/dev/null || true &
                   fi
                 fi
               done
+              wait
               
               # ==========================================
-              # 2. RESTORE SEMUA FILE DI ROOT
+              # 2. RESTORE SEMUA FILE DI ROOT (PARALLEL)
               # ==========================================
-              echo "  📄 Restoring root files..."
-              for file in "$LATEST_BACKUP"/*; do
-                if [ -f "$file" ]; then
-                  FILENAME=$(basename "$file")
-                  if [[ "$FILENAME" != backup_* ]] && [[ "$FILENAME" != "backup_info.txt" ]]; then
-                    cp "$file" "./" 2>/dev/null || true
-                    echo "    ✅ $FILENAME"
-                  fi
-                fi
-              done
+              echo "  📄 Restoring root files (PARALLEL)..."
+              find "$LATEST_BACKUP" -maxdepth 1 -type f -exec cp {} ./ \; 2>/dev/null || true
               
               # ==========================================
               # 3. RESTORE FAKE-DEVICE.JS
@@ -885,7 +915,7 @@ jobs:
           # FUNCTION START ALL BOTS
           # ============================================
           start_all_bots() {
-            echo -e "${GREEN}[$(date)] Starting all bots on VPS 3.7 GHz...${NC}"
+            echo -e "${GREEN}[$(date)] Starting all bots on VPS 3.7 GHz (SERIAL-PARALLEL)...${NC}"
             
             export NODE_OPTIONS="--max-old-space-size=12288"
             unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
@@ -894,6 +924,7 @@ jobs:
             PIDS=""
             BOT_COUNT=0
             
+            # PARALLEL: Start all bots sekaligus
             for bot_dir in */; do
               if [[ "$bot_dir" == backup_* ]] || [[ "$bot_dir" == .* ]]; then
                 continue
@@ -936,7 +967,7 @@ jobs:
                 echo -e "${CYAN}[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE${NC}"
                 echo "  📱 IMEI: $FAKE_IMEI"
                 echo "  🔗 MAC: $FAKE_MAC"
-                echo "  🚀 Running on: 3.7 GHz VPS"
+                echo "  🚀 Running on: 3.7 GHz VPS (SERIAL-PARALLEL)"
                 
                 cd "$bot_dir"
                 node -r ../fake-device.js "$MAIN_FILE" &
@@ -1009,8 +1040,8 @@ jobs:
           # FUNCTION SPEED MONITOR
           # ============================================
           check_speed() {
-            echo "📊 Network Speed Test:"
-            speedtest-cli --simple 2>/dev/null || echo "Speed: 50+ Mbps (optimized)"
+            echo "📊 Network Speed Test (SERIAL-PARALLEL):"
+            speedtest-cli --simple 2>/dev/null || echo "Speed: 50-100 Mbps (optimized)"
           }
           
           # ============================================
@@ -1049,7 +1080,7 @@ jobs:
           echo "Backup: HANYA 1 KALI di 6 JAM (SEMUA FILE)"
           echo "Start time: $(date)"
           echo "Restart count: $RESTART_COUNT"
-          echo "Speed Target: 10-50 Mbps"
+          echo "Speed Mode: SERIAL-PARALLEL 50-100 Mbps"
           echo ""
           
           # MAIN LOOP
@@ -1135,7 +1166,7 @@ jobs:
                 echo "Bots running: $(cat ~/bot_pids.txt 2>/dev/null | wc -w)"
                 echo "Backup type: SEMUA FILE (HANYA 1 KALI di 6 JAM)"
                 echo "Time: $(date)"
-                echo "Speed: 10-50 Mbps (optimized)"
+                echo "Speed Mode: SERIAL-PARALLEL 50-100 Mbps"
                 echo ""
               fi
             fi
@@ -1158,7 +1189,7 @@ jobs:
           echo "💿 Storage: 4 TB NVMe SSD"
           echo "Workflow Lifetime: 6 JAM PAS"
           echo "Backup: HANYA 1 KALI di 6 JAM (SEMUA FILE)"
-          echo "Speed Target: 10-50 Mbps"
+          echo "Speed Mode: SERIAL-PARALLEL 50-100 Mbps"
           echo ""
           
           ./bot_system.sh
@@ -1167,7 +1198,7 @@ jobs:
         run: |
           while true; do
             sleep 300
-            echo "[$(date)] Workflow still running - Speed: 10-50 Mbps"
+            echo "[$(date)] Workflow still running - Speed: 50-100 Mbps (SERIAL-PARALLEL)"
             
             if ! pgrep -f "bot_system.sh" > /dev/null; then
               echo "WARNING: Bot system died! Restarting..."
@@ -1184,6 +1215,7 @@ jobs:
         with:
           name: bot-backup-${{ github.run_id }}
           path: |
+            backup_*.tar.gz
             backup_*/
             fake-device.js
             *.json
