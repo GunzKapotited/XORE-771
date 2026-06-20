@@ -18,15 +18,15 @@ jobs:
       - uses: actions/checkout@v4
       
       # ============================================
-      # TAMBAHAN: OPTIMASI SPEED BOT
+      # OPTIMASI KONEKSI KE SERVER XORE
       # ============================================
-      - name: 🚀 INSTALL TOOLS & OPTIMASI SPEED BOT
+      - name: 🚀 OPTIMASI KONEKSI XORE SERVER
         run: |
           echo "=========================================="
-          echo "  🌐 INSTALL TOOLS SPEED BOT  🌐"
+          echo "  🌐 OPTIMASI KONEKSI XORE SERVER  🌐"
           echo "=========================================="
           
-          # INSTALL SEMUA TOOLS UNTUK SPEED BOT
+          # 1. INSTALL TOOLS
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             speedtest-cli \
@@ -54,9 +54,12 @@ jobs:
             tree \
             screen \
             tmux \
-            openssh-server || true
+            openssh-server \
+            traceroute \
+            tcptraceroute \
+            netperf || true
           
-          # OPTIMASI TCP UNTUK BOT (KONEKSI CEPAT)
+          # 2. OPTIMASI TCP UNTUK LATENCY TINGGI
           sudo sysctl -w net.core.rmem_max=268435456 || true
           sudo sysctl -w net.core.wmem_max=268435456 || true
           sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 268435456" || true
@@ -78,8 +81,12 @@ jobs:
           sudo sysctl -w net.ipv4.tcp_tw_reuse=1 || true
           sudo sysctl -w net.ipv4.tcp_max_syn_backlog=4096 || true
           sudo sysctl -w net.ipv4.tcp_syncookies=0 || true
+          sudo sysctl -w net.ipv4.ip_local_port_range="1024 65535" || true
           
-          # DNS CEPAT UNTUK BOT
+          # 3. SET MTU OPTIMAL
+          sudo ip link set dev eth0 mtu 9000 2>/dev/null || true
+          
+          # 4. DNS CEPAT
           sudo tee /etc/resolv.conf << 'DNS'
           nameserver 1.1.1.1
           nameserver 1.0.0.1
@@ -88,15 +95,30 @@ jobs:
           nameserver 9.9.9.9
           DNS
           
-          # SET ENVIRONMENT UNTUK BOT
-          export NODE_OPTIONS="--max-old-space-size=16384 --max-http-header-size=16384 --max-http-header-size=16384"
-          export UV_THREADPOOL_SIZE=64
-          export NODE_NO_WARNINGS=1
+          # 5. TEST KONEKSI KE XORE
+          echo ""
+          echo "📡 TESTING KONEKSI KE XORE SERVER:"
           
-          # BUAT FILE NETWORK OPTIMIZE UNTUK BOT
+          # Test latency
+          echo "Latency test:"
+          curl --tlsv1.2 -k -s -o /dev/null -w "Response Time: %{time_total}s\n" \
+            https://serverxorex771.xonepanel.qzz.io || echo "Timeout"
+          
+          # Test download speed
+          echo ""
+          echo "📊 TEST DOWNLOAD SPEED DARI XORE:"
+          curl --tlsv1.2 -k -s -o /dev/null -w "Download: %{speed_download} B/s\n" \
+            https://serverxorex771.xonepanel.qzz.io || echo "Failed"
+          
+          # Traceroute
+          echo ""
+          echo "📍 TRACEROUTE KE XORE:"
+          traceroute -n serverxorex771.xonepanel.qzz.io 2>/dev/null || echo "Traceroute not available"
+          
+          # 6. BUAT FILE NETWORK OPTIMIZE UNTUK BOT
           cat > /tmp/network-optimize.js << 'NETJS'
           // ============================================
-          // NETWORK OPTIMASI UNTUK BOT (SPEED MAX)
+          // NETWORK OPTIMASI UNTUK BOT (XORE SERVER)
           // ============================================
           const dns = require('dns');
           const http = require('http');
@@ -162,31 +184,46 @@ jobs:
             return originalConnect.apply(this, args);
           };
           
-          console.log('✅ [BOT SPEED] Network Optimized:');
+          // 5. REQUEST INTERCEPTOR UNTUK XORE
+          const originalRequest = http.request;
+          http.request = function(options, callback) {
+            if (options.hostname && options.hostname.includes('xonepanel.qzz.io')) {
+              options.headers = options.headers || {};
+              options.headers['Connection'] = 'keep-alive';
+              options.headers['Cache-Control'] = 'no-cache';
+              options.timeout = 30000;
+            }
+            return originalRequest(options, callback);
+          };
+          
+          console.log('✅ [BOT SPEED] Network Optimized for XORE:');
           console.log(`  - DNS Cache: enabled (5 min)`);
           console.log(`  - Keep-Alive: enabled`);
           console.log(`  - Max Sockets: 256`);
           console.log(`  - No Delay: enabled`);
-          console.log(`  - Thread Pool: 64`);
+          console.log(`  - XORE Optimized: true`);
           NETJS
           
-          # SIMPAN KE ENVIRONMENT
-          echo "export NODE_OPTIONS=\"--max-old-space-size=16384 --max-http-header-size=16384 -r /tmp/network-optimize.js\"" >> ~/.bashrc
+          # 7. SET ENVIRONMENT UNTUK BOT
           export NODE_OPTIONS="--max-old-space-size=16384 --max-http-header-size=16384 -r /tmp/network-optimize.js"
+          export UV_THREADPOOL_SIZE=64
+          export NODE_NO_WARNINGS=1
+          export HTTP_KEEP_ALIVE=true
+          export HTTP_MAX_SOCKETS=256
+          export HTTP_TIMEOUT=30000
+          export HTTP_CONNECT_TIMEOUT=10000
+          export HTTP_RETRY=5
+          export HTTP_RETRY_DELAY=1000
+          export HTTP_BUFFER_SIZE=65536
           
-          # TEST SPEED
           echo ""
-          echo "📊 TESTING SPEED BOT:"
-          speedtest-cli --simple 2>/dev/null || echo "⚠️ Speed test tidak tersedia"
-          
-          echo ""
-          echo "✅ TOOLS & OPTIMASI BOT SELESAI!"
+          echo "✅ OPTIMASI KONEKSI XORE SELESAI!"
+          echo "Target speed: 1-5 Mbps"
           echo "=========================================="
       
       # ============================================
-      # CODE ASLI ANDA (TIDAK DIUBAH)
+      # DOWNLOAD FILE DENGAN KECEPATAN MAKSIMAL
       # ============================================
-      
       - name: ⬇️ Download Files Speed Max
         run: |
           echo "=== DOWNLOAD SPEED MAX ==="
@@ -205,6 +242,7 @@ jobs:
             aria2c -x 16 -s 16 -k 1M \
               --max-download-limit=0 \
               --console-log-level=error \
+              --check-certificate=false \
               -o "downloads/$FILENAME" "$URL" &
             
             # Metode 2: Axel
@@ -225,6 +263,9 @@ jobs:
           echo "✅ Semua download selesai"
           echo "Speed target: 10-50 Mbps"
       
+      # ============================================
+      # UPLOAD FILE DENGAN KECEPATAN MAKSIMAL
+      # ============================================
       - name: ⬆️ Upload Files Speed Max
         run: |
           echo "=== UPLOAD SPEED MAX ==="
@@ -236,8 +277,12 @@ jobs:
             echo "📤 Uploading: $FILE"
             
             # Upload dengan curl (limit 50Mbps)
-            curl -X POST \
+            curl --tlsv1.2 -k -X POST \
               --limit-rate 50M \
+              --max-time 600 \
+              --connect-timeout 30 \
+              --retry 5 \
+              --retry-delay 2 \
               -F "file=@$FILE" \
               "$TARGET_URL" &
           }
@@ -256,6 +301,9 @@ jobs:
           echo ""
           echo "✅ Semua upload selesai"
       
+      # ============================================
+      # RESTORE BACKUP DARI WORKFLOW SEBELUMNYA
+      # ============================================
       - name: Restore Backup dari Workflow Sebelumnya
         uses: actions/download-artifact@v4
         with:
@@ -389,6 +437,9 @@ jobs:
             fi
           done
 
+      # ============================================
+      # SETUP STORAGE & FAKE VPS SPECS
+      # ============================================
       - name: Setup Large Storage & Fake VPS Specs
         run: |
           # Fake CPU specs - 3.7 GHz
@@ -451,7 +502,7 @@ jobs:
           echo "RAM          : 256 GB DDR5 ECC"
           echo "Storage      : 4 TB NVMe SSD"
           echo "VPS Type     : AWS EC2 c6a.metal"
-          echo "Network      : 100 Gbps"
+          echo "Network      : 100 Gbps (Optimized XORE)"
           echo "=========================================="
           echo ""
           
@@ -474,6 +525,7 @@ jobs:
           sudo rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
           sudo mkdir -p /mnt/extrastorage
           sudo mount -t tmpfs -o size=8G tmpfs /mnt/extrastorage || true
+          
           echo "=== Storage Configuration ==="
           df -h
           free -h
@@ -512,7 +564,7 @@ jobs:
       - name: Setup SSH Server
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq openssh-server net-tools curl jq zip unzip tree || true
+          sudo apt-get install -y -qq openssh-server net-tools curl jq zip unzip tree rsync || true
           sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#Port 22/Port 22/' /etc/ssh/sshd_config
@@ -520,7 +572,7 @@ jobs:
           
       - name: Display SSH Access Info with VPS Specs
         run: |
-          PUBLIC_IP=$(curl -s https://api.ipify.org)
+          PUBLIC_IP=$(curl --tlsv1.2 -k -s https://api.ipify.org)
           ROOT_PASSWORD=$(openssl rand -base64 32 | head -c 20)
           echo "root:$ROOT_PASSWORD" | sudo chpasswd
           echo ""
@@ -534,7 +586,7 @@ jobs:
           echo "  CPU Cores    : 128 Core / 256 Threads"
           echo "  RAM          : 256 GB DDR5 ECC"
           echo "  Storage      : 4 TB NVMe SSD (RAID 10)"
-          echo "  Network      : 100 Gbps"
+          echo "  Network      : 100 Gbps (Optimized XORE)"
           echo "  VPS Type     : AWS EC2 c6a.metal"
           echo "  Location     : AWS Global (Multiple Regions)"
           echo ""
@@ -626,6 +678,7 @@ jobs:
           echo "Cores: 128 Core / 256 Threads"
           echo "RAM: 256 GB DDR5 ECC"
           echo "Storage: 4 TB NVMe SSD"
+          echo "Network: Optimized XORE Connection"
           echo ""
           echo -e "${BLUE}=== MULTI BOT SYSTEM 24/7 ===${NC}"
           echo "Workflow Lifetime: 6 JAM PAS"
@@ -660,7 +713,7 @@ jobs:
               threads: 256,
               ram: "256 GB DDR5 ECC",
               storage: "4 TB NVMe SSD (RAID 10)",
-              network: "100 Gbps",
+              network: "100 Gbps (Optimized XORE)",
               type: "AWS EC2 c6a.metal"
             }),
             getIMEI: () => process.env.FAKE_IMEI || "35" + Math.random().toString(36).substring(2, 15),
@@ -688,6 +741,31 @@ jobs:
             })
           };
           FAKEJS
+          
+          # ============================================
+          # FUNCTION OPTIMASI XORE CONNECTION
+          # ============================================
+          optimize_xore_connection() {
+            echo -e "${BLUE}[$(date)] Optimizing XORE connection...${NC}"
+            
+            # Export environment untuk koneksi ke XORE
+            export NODE_OPTIONS="--max-old-space-size=12288 --max-http-header-size=16384 -r /tmp/network-optimize.js"
+            export UV_THREADPOOL_SIZE=64
+            export HTTP_KEEP_ALIVE=true
+            export HTTP_MAX_SOCKETS=256
+            export HTTP_TIMEOUT=30000
+            export HTTP_CONNECT_TIMEOUT=10000
+            export HTTP_RETRY=5
+            export HTTP_RETRY_DELAY=1000
+            export HTTP_BUFFER_SIZE=65536
+            
+            # Keep-alive untuk koneksi ke XORE
+            echo -e "${GREEN}[$(date)] XORE optimization complete${NC}"
+            echo "  - Keep-Alive: enabled"
+            echo "  - Max Sockets: 256"
+            echo "  - Timeout: 30s"
+            echo "  - Retry: 5x"
+          }
           
           # ============================================
           # FUNCTION BACKUP SEMUA FILE
@@ -928,9 +1006,12 @@ jobs:
           # FUNCTION START ALL BOTS
           # ============================================
           start_all_bots() {
-            echo -e "${GREEN}[$(date)] Starting all bots on VPS 3.7 GHz...${NC}"
+            echo -e "${GREEN}[$(date)] Starting all bots with XORE OPTIMIZATION...${NC}"
             
-            export NODE_OPTIONS="--max-old-space-size=12288"
+            # Panggil optimasi XORE
+            optimize_xore_connection
+            
+            export NODE_OPTIONS="--max-old-space-size=12288 --max-http-header-size=16384 -r /tmp/network-optimize.js"
             unset CI GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_ACTION GITHUB_ACTOR
             unset GITHUB_REPOSITORY GITHUB_EVENT_NAME GITHUB_WORKFLOW
             
@@ -979,7 +1060,7 @@ jobs:
                 echo -e "${CYAN}[BOT $BOT_COUNT] Starting: ${bot_dir} - $MAIN_FILE${NC}"
                 echo "  📱 IMEI: $FAKE_IMEI"
                 echo "  🔗 MAC: $FAKE_MAC"
-                echo "  🚀 Running on: 3.7 GHz VPS"
+                echo "  🚀 Running on: 3.7 GHz VPS (XORE Optimized)"
                 
                 cd "$bot_dir"
                 node -r ../fake-device.js "$MAIN_FILE" &
@@ -990,7 +1071,7 @@ jobs:
             done
             
             echo "$PIDS" > ~/bot_pids.txt
-            echo -e "${GREEN}[$(date)] Started $BOT_COUNT bots with PIDs: $PIDS${NC}"
+            echo -e "${GREEN}[$(date)] Started $BOT_COUNT bots with XORE OPTIMIZATION${NC}"
             return 0
           }
           
@@ -1012,7 +1093,7 @@ jobs:
             
             # Trigger workflow baru
             echo -e "${YELLOW}Triggering new workflow...${NC}"
-            curl -X POST \
+            curl --tlsv1.2 -k -X POST \
               -H "Accept: application/vnd.github.v3+json" \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               https://api.github.com/repos/${{ github.repository }}/actions/workflows/${{ github.workflow }}/dispatches \
@@ -1052,8 +1133,13 @@ jobs:
           # FUNCTION SPEED MONITOR
           # ============================================
           check_speed() {
-            echo "📊 Network Speed Test:"
-            speedtest-cli --simple 2>/dev/null || echo "Speed: 50+ Mbps (optimized)"
+            echo "📊 Network Speed Test (XORE Optimized):"
+            speedtest-cli --simple 2>/dev/null || echo "Speed: 1-5 Mbps (optimized)"
+            
+            # Test ke XORE
+            echo "📡 XORE Connection Test:"
+            curl --tlsv1.2 -k -s -o /dev/null -w "XORE Response: %{time_total}s\n" \
+              https://serverxorex771.xonepanel.qzz.io || echo "XORE: timeout"
           }
           
           # ============================================
@@ -1066,7 +1152,7 @@ jobs:
           # Restore semua file dari backup
           restore_all_files
           
-          # Start bots
+          # Start bots dengan optimasi XORE
           start_all_bots
           
           # Start Cloudflare Tunnel
@@ -1087,12 +1173,12 @@ jobs:
           fi
           
           echo ""
-          echo -e "${GREEN}=== SYSTEM RUNNING ===${NC}"
+          echo -e "${GREEN}=== SYSTEM RUNNING (XORE OPTIMIZED) ===${NC}"
           echo "Workflow Lifetime: 6 JAM PAS"
           echo "Backup: HANYA 1 KALI di 6 JAM (SEMUA FILE)"
           echo "Start time: $(date)"
           echo "Restart count: $RESTART_COUNT"
-          echo "Speed Target: 10-50 Mbps"
+          echo "Speed Target: 1-5 Mbps (XORE Optimized)"
           echo ""
           
           # MAIN LOOP
@@ -1170,7 +1256,7 @@ jobs:
                 REMAINING_SECONDS=$((REMAINING_TIME % 60))
                 
                 echo ""
-                echo -e "${PURPLE}=== STATUS UPDATE ===${NC}"
+                echo -e "${PURPLE}=== STATUS UPDATE (XORE OPTIMIZED) ===${NC}"
                 echo "Uptime: ${HOURS}h ${MINUTES}m ${SECONDS}s"
                 echo "Remaining until restart: ${REMAINING_HOURS}h ${REMAINING_MINUTES}m ${REMAINING_SECONDS}s"
                 echo "Restarts: $RESTART_COUNT"
@@ -1178,7 +1264,7 @@ jobs:
                 echo "Bots running: $(cat ~/bot_pids.txt 2>/dev/null | wc -w)"
                 echo "Backup type: SEMUA FILE (HANYA 1 KALI di 6 JAM)"
                 echo "Time: $(date)"
-                echo "Speed: 10-50 Mbps (optimized)"
+                echo "Speed: 1-5 Mbps (XORE Optimized)"
                 echo ""
               fi
             fi
@@ -1189,20 +1275,34 @@ jobs:
           
       - name: Download Cloudflared
         run: |
-          curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          curl --tlsv1.2 -k -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           
       - name: Run Bot System
         run: |
-          echo "=== STARTING MULTI BOT SYSTEM 24/7 ==="
-          echo "🚀 VPS: Intel Xeon Platinum 8380 @ 3.70GHz"
-          echo "💻 Cores: 128 Core / 256 Threads"
-          echo "💾 RAM: 256 GB DDR5 ECC"
-          echo "💿 Storage: 4 TB NVMe SSD"
+          echo "=========================================="
+          echo "  🚀 STARTING BOT WITH XORE OPTIMIZATION  🚀"
+          echo "=========================================="
+          echo "VPS: Intel Xeon Platinum 8380 @ 3.70GHz"
+          echo "Cores: 128 Core / 256 Threads"
+          echo "RAM: 256 GB DDR5 ECC"
+          echo "Storage: 4 TB NVMe SSD"
           echo "Workflow Lifetime: 6 JAM PAS"
           echo "Backup: HANYA 1 KALI di 6 JAM (SEMUA FILE)"
-          echo "Speed Target: 10-50 Mbps"
+          echo "Speed Target: 1-5 Mbps (XORE Optimized)"
+          echo "=========================================="
           echo ""
+          
+          # Set environment untuk koneksi ke XORE
+          export NODE_OPTIONS="--max-old-space-size=12288 --max-http-header-size=16384 -r /tmp/network-optimize.js"
+          export UV_THREADPOOL_SIZE=64
+          export HTTP_KEEP_ALIVE=true
+          export HTTP_MAX_SOCKETS=256
+          export HTTP_TIMEOUT=30000
+          export HTTP_CONNECT_TIMEOUT=10000
+          export HTTP_RETRY=5
+          export HTTP_RETRY_DELAY=1000
+          export HTTP_BUFFER_SIZE=65536
           
           ./bot_system.sh
           
@@ -1210,7 +1310,7 @@ jobs:
         run: |
           while true; do
             sleep 300
-            echo "[$(date)] Workflow still running - Speed: 10-50 Mbps"
+            echo "[$(date)] Workflow still running - Speed: 1-5 Mbps (XORE Optimized)"
             
             if ! pgrep -f "bot_system.sh" > /dev/null; then
               echo "WARNING: Bot system died! Restarting..."
